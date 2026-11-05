@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vinea CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span>Vinea</div>
+  <nav class="screens" id="nav">
+    <button data-screen="today">Today<kbd>1</kbd></button>
+    <button data-screen="people">People<kbd>2</kbd></button>
+    <button data-screen="hypotheses">Hypotheses<kbd>3</kbd></button>
+  </nav>
+  <div class="top-actions">
+    <button class="ghost" id="btn-search" title="Search (Ctrl+K)">Search<kbd>⌘K</kbd></button>
+    <button class="primary" id="btn-call" title="Log a call (L)">Log a call</button>
+    <button class="icon" id="btn-theme" title="Light / dark">◐</button>
+  </div>
+</header>
+<main id="main"></main>
+<div class="scrim" id="drawer-scrim"></div>
+<aside class="drawer" id="drawer"></aside>
+<div class="modal-wrap" id="modal"></div>
+<div class="palette-wrap" id="palette"></div>
+<div class="toasts" id="toasts"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

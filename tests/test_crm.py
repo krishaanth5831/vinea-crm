@@ -1,0 +1,156 @@
+"""End-to-end checks through the HTTP API on an in-memory database."""
+
+import json
+from datetime import date, timedelta
+
+import pytest
+from fastapi.testclient import TestClient
+
+from crm import calls, config, vault
+from crm.app import create_app
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "AUDIO_DIR", tmp_path / "calls")
+    app = create_app(tmp_path / "t.db")
+    with TestClient(app) as c:
+        yield c
+
+
+def person(c, **kw):
+    d = {"name": "Ali Khaleel", "company": "Agrocare", "track": "growers"}
+    d.update(kw)
+    r = c.post("/api/people", json=d)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_meta_and_empty_today(client):
+    m = client.get("/api/meta").json()
+    assert m["tracks"] == ["growers", "engineers", "labs", "angels"]
+    assert m["threshold"] == 5
+    t = client.get("/api/today").json()
+    assert t["due"] == [] and t["drafts"] == []
+
+
+def test_person_crud_and_stage_rules(client):
+    p = person(client)
+    assert p["stage"] == "new" and p["language"] == "en"
+    # move along the ladder
+    r = client.patch(f"/api/people/{p['id']}", json={"stage": "visit"})
+    assert r.json()["stage"] == "visit"
+    # unknown stage is a 400
+    assert client.patch(f"/api/people/{p['id']}", json={"stage": "ally"}).status_code == 400
+    # switching track with a stage the new ladder lacks falls back to new
+    r = client.patch(f"/api/people/{p['id']}", json={"track": "angels"})
+    assert r.json()["stage"] == "new"
+    # name required
+    assert client.post("/api/people", json={"name": "  "}).status_code == 400
+    assert client.get("/api/search?q=ali").json()[0]["id"] == p["id"]
+    client.delete(f"/api/people/{p['id']}")
+    assert client.get(f"/api/people/{p['id']}").status_code == 404
+
+
+def test_due_and_done(client):
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    p = person(client, next_step="Call", next_date=yesterday)
+    t = client.get("/api/today").json()
+    assert [d["id"] for d in t["due"]] == [p["id"]]
+    nxt = (date.today() + timedelta(days=3)).isoformat()
+    r = client.post(f"/api/people/{p['id']}/done", json={"note": "Spoke briefly", "kind": "call", "next_step": "Visit", "next_date": nxt})
+    assert r.json()["next_date"] == nxt
+    assert r.json()["touches"][0]["kind"] == "call"
+    assert client.get("/api/today").json()["due"] == []
+
+
+def test_draft_sent_books_follow_up(client):
+    p = person(client, email="ali@example.com")
+    d = client.post(f"/api/people/{p['id']}/drafts", json={"channel": "email", "subject": "Hi", "body": "Hello"}).json()
+    assert client.get("/api/today").json()["drafts"][0]["id"] == d["id"]
+    client.patch(f"/api/drafts/{d['id']}", json={"status": "sent", "body": "Hello edited"})
+    p2 = client.get(f"/api/people/{p['id']}").json()
+    assert p2["stage"] == "contacted"
+    assert p2["next_step"] == "Follow up"
+    assert p2["next_date"] == (date.today() + timedelta(days=config.FOLLOW_UP_DAYS)).isoformat()
+    assert p2["touches"][0]["body"] == "Sent: Hi"
+    assert client.get("/api/today").json()["drafts"] == []
+    assert client.post(f"/api/people/{p['id']}/drafts", json={"channel": "fax"}).status_code == 400
+
+
+def test_hypothesis_dots_and_auto_status(client):
+    h = client.post("/api/hypotheses", json={"claim": "Growers rent, not buy", "track": "growers"}).json()
+    assert h["status"] == "untested"
+    for i in range(5):
+        client.post(f"/api/hypotheses/{h['id']}/evidence", json={"verdict": "yes", "quote": f"q{i}"})
+    hs = client.get("/api/hypotheses").json()
+    assert hs[0]["yes"] == 5 and hs[0]["status"] == "holding"
+    # revise: old closes, new links back
+    n = client.post(f"/api/hypotheses/{h['id']}/revise", json={"claim": "Growers rent per season"}).json()
+    assert n["revised_from"] == h["id"]
+    old = [x for x in client.get("/api/hypotheses").json() if x["id"] == h["id"]][0]
+    assert old["status"] == "revised"
+    assert len(client.get("/api/hypotheses?all=0").json()) == 1
+    assert client.post(f"/api/hypotheses/{h['id']}/evidence", json={"verdict": "maybe"}).status_code == 400
+
+
+def test_confirm_call_writes_everything(client):
+    p = person(client)
+    h = client.post("/api/hypotheses", json={"claim": "Deleafing is the pain"}).json()
+    r = client.post("/api/calls/confirm", json={
+        "person_id": p["id"], "kind": "call", "summary": "Good call", "transcript": "long text",
+        "verdicts": [{"hypothesis_id": h["id"], "verdict": "no", "quote": "not really"}],
+        "referrals": [{"name": "Jan de Vries", "company": "Looye"}],
+        "insights": [{"module": "SHEAR", "text": "Knives are a virus hot spot"}],
+        "next_step": "Visit", "next_date": "2026-11-20", "stage": "call"}).json()
+    assert r["person"]["stage"] == "call" and r["person"]["next_date"] == "2026-11-20"
+    assert r["person"]["touches"][0]["transcript"] == "long text"
+    assert r["person"]["evidence"][0]["verdict"] == "no"
+    ref = r["referrals"][0]
+    assert ref["referred_by"] == p["id"] and ref["track"] == "growers" and ref["next_date"] == date.today().isoformat()
+    assert r["person"]["referrals"][0]["name"] == "Jan de Vries"
+    ins = client.get("/api/insights?pending=1").json()
+    assert ins[0]["module"] == "SHEAR" and ins[0]["person_name"] == "Ali Khaleel"
+    week = client.get("/api/week").json()
+    assert len(week["calls"]) == 1 and len(week["evidence"]) == 1
+
+
+def test_export_appends_to_vault(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "VAULT_MODULES", tmp_path / "mods")
+    idx = tmp_path / "mods" / "SHEAR" / "(C) SHEAR Index.md"
+    idx.parent.mkdir(parents=True)
+    idx.write_text("# SHEAR\n\n## Progress\n\n- **2026-11-01**: older line\n", encoding="utf-8")
+    p = person(client)
+    client.post("/api/calls/confirm", json={"person_id": p["id"], "summary": "x",
+                                            "insights": [{"module": "SHEAR", "text": "Flush cut confirmed"},
+                                                         {"module": "RAVEN", "text": "no file for this one"}]})
+    r = client.post("/api/insights/export").json()
+    assert r["written"] == {"SHEAR": 1} and r["missing"] == ["RAVEN"] and r["count"] == 1
+    text = idx.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    assert lines[2] == "## Progress"
+    assert lines[4].startswith(f"- **{date.today().isoformat()}**: Call (Ali Khaleel, Agrocare): Flush cut confirmed")
+    assert lines[5] == "- **2026-11-01**: older line"
+    # RAVEN stays pending, SHEAR is marked exported
+    pending = client.get("/api/insights?pending=1").json()
+    assert [i["module"] for i in pending] == ["RAVEN"]
+
+
+def test_extract_and_draft_parse_model_output(client, monkeypatch):
+    p = person(client, language="nl")
+    h = client.post("/api/hypotheses", json={"claim": "A"}).json()
+    reply = json.dumps({"summary": "s", "next_step": "n", "next_date": "", "verdicts": [
+        {"hypothesis_id": h["id"], "verdict": "yes", "quote": "ja"}, {"hypothesis_id": 999, "verdict": "yes", "quote": "x"}],
+        "referrals": [{"name": "Piet", "company": ""}, {"name": ""}], "insights": [{"module": "BLUSH", "text": "t"}, {"module": "NOPE", "text": "t"}]})
+    monkeypatch.setattr(calls, "run_claude", lambda prompt, timeout=180: "```json\n" + reply + "\n```")
+    r = client.post("/api/calls/extract", json={"person_id": p["id"], "transcript": "hallo"}).json()
+    assert len(r["verdicts"]) == 1 and len(r["referrals"]) == 1 and len(r["insights"]) == 1
+    monkeypatch.setattr(calls, "run_claude", lambda prompt, timeout=180: '{"subject": "Kort gesprek", "body": "Beste Ali, 3 dingen.\\n\\nKrishaanth"}')
+    d = client.post(f"/api/people/{p['id']}/drafts/generate", json={"channel": "email"}).json()
+    assert d["subject"] == "Kort gesprek" and "3" not in d["body"] and d["status"] == "pending"
+
+
+def test_transcribe_without_backend_is_503(client, monkeypatch):
+    monkeypatch.setattr(calls, "transcription_backend", lambda: "")
+    r = client.post("/api/calls/transcribe", files={"file": ("a.m4a", b"xx", "audio/mp4")})
+    assert r.status_code == 503 and "faster-whisper" in r.json()["error"]
