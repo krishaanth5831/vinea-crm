@@ -456,6 +456,17 @@ def today_items(conn) -> dict:
     return {"date": t, "due": due, "upcoming": upcoming, "drafts": list_drafts(conn, "pending")}
 
 
+def pulse(conn) -> dict:
+    """Small numbers for the top bar: touches and calls in the last 7 days."""
+    since = (datetime.now() - timedelta(days=7)).replace(microsecond=0).isoformat(sep=" ")
+    touches = one(conn.execute(
+        "SELECT count(*) c FROM touches WHERE at >= ? AND kind != 'note'", (since,)))["c"]
+    calls = one(conn.execute(
+        "SELECT count(*) c FROM touches WHERE at >= ? AND kind IN ('call','visit','meeting')", (since,)))["c"]
+    people = one(conn.execute("SELECT count(*) c FROM people WHERE stage != 'closed'"))["c"]
+    return {"touches": touches, "calls": calls, "people": people, "target": config.WEEKLY_TOUCH_TARGET}
+
+
 def week_summary(conn) -> dict:
     """Lists for the Friday review (last 7 days)."""
     since = (datetime.now() - timedelta(days=7)).replace(microsecond=0).isoformat(sep=" ")

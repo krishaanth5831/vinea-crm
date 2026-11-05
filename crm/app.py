@@ -54,6 +54,10 @@ def create_app(db_path=None) -> FastAPI:
     def today():
         return db.today_items(conn)
 
+    @app.get("/api/pulse")
+    def pulse():
+        return db.pulse(conn)
+
     @app.get("/api/week")
     def week():
         return db.week_summary(conn)
