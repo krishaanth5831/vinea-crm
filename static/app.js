@@ -5,7 +5,7 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { meta: null, screen: "today", track: "growers", openDraft: null, openDue: null, openHyp: null, drawerId: null };
+const state = { meta: null, screen: "today", track: "growers", hypTrack: "", openDraft: null, openDue: null, openHyp: null, drawerId: null };
 
 // ------------------------------------------------------------------ api --
 async function api(method, url, body) {
@@ -29,6 +29,21 @@ function toast(msg, err = false) {
 const guard = (fn) => async (...a) => { try { return await fn(...a); } catch (e) { toast(e.message, true); } };
 
 // -------------------------------------------------------------- helpers --
+const ICONS = {
+  cal: '<path d="M8 2v3M16 2v3M3 9h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>',
+  mail: '<path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="m2 7 10 7 10-7"/>',
+  link: '<path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/>',
+  phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/>',
+  check: '<path d="m5 12 5 5L20 7"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  sprout: '<path d="M12 22V10"/><path d="M12 10C12 6 9 4 4 4c0 5 3 8 8 8z"/><path d="M12 14c0-4 3-6 8-6 0 5-3 8-8 8z"/>',
+  seed: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
+  bulb: '<path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/>',
+};
+const icon = (n) => `<svg class="i" viewBox="0 0 24 24">${ICONS[n] || ""}</svg>`;
+const hue = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+const initials = (name) => name.trim().split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+const avatar = (p, cls = "") => `<span class="avatar ${cls}" style="--h:${hue(p.name)}">${esc(initials(p.name || "?"))}</span>`;
 const stageLabel = (s) => state.meta.stage_labels[s] || s;
 const fmtDate = (iso) => {
   if (!iso) return "";
@@ -39,12 +54,14 @@ const fmtWhen = (iso) => {
   const d = new Date(iso.replace(" ", "T"));
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) + " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 };
+const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const isOverdue = (iso) => iso && iso < state.meta.today;
 const options = (list, cur, label = (x) => x) => list.map((x) => `<option value="${esc(x)}" ${x === cur ? "selected" : ""}>${esc(label(x))}</option>`).join("");
 const trackOpts = (cur) => options(state.meta.tracks, cur);
 const stageOpts = (track, cur) => options(state.meta.stages[track], cur, stageLabel);
 const moduleOpts = (cur) => options(state.meta.modules, cur);
 const langOpts = (cur) => options(["en", "nl", "de", "fr"], cur || "en");
+const empty = (ic, title, text) => `<div class="empty">${icon(ic)}<strong>${title}</strong>${text}</div>`;
 
 function setTheme(t) {
   if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
@@ -53,6 +70,14 @@ function setTheme(t) {
 function toggleTheme() {
   const dark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
   setTheme(dark ? "light" : "dark");
+}
+
+async function refreshPulse() {
+  const p = await get("/api/pulse").catch(() => null);
+  if (!p) return;
+  const pct = Math.min(100, Math.round(100 * p.touches / p.target));
+  $("#pulse").innerHTML = `<span class="ring" style="--p:${pct}"></span><span><b>${p.touches}</b> / ${p.target} this week</span>`;
+  $("#pulse").title = `${p.touches} messages and calls in the last 7 days · ${p.calls} calls · ${p.people} people in play`;
 }
 
 // ---------------------------------------------------------------- nav ----
@@ -70,6 +95,7 @@ async function render() {
   else if (state.screen === "people") main.innerHTML = await renderPeople();
   else main.innerHTML = await renderHypotheses();
   wire(main);
+  refreshPulse();
 }
 
 // -------------------------------------------------------------- today ----
@@ -77,22 +103,28 @@ async function renderToday() {
   const t = await get("/api/today");
   const d = new Date(t.date + "T00:00:00");
   const friday = state.meta.is_friday ? await renderReview() : "";
-  const drafts = t.drafts.map((x) => draftItem(x)).join("");
-  const due = t.due.map((x) => dueItem(x)).join("");
-  const up = t.upcoming.map((x) => `<div class="item" data-open-person="${x.id}"><span class="muted small">${fmtDate(x.next_date)}</span><div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub">${esc(x.next_step)}</div></div><span class="chip">${esc(x.track)}</span></div>`).join("");
-  const empty = !t.drafts.length && !t.due.length;
+  const drafts = t.drafts.map((x, i) => draftItem(x, i)).join("");
+  const due = t.due.map((x, i) => dueItem(x, i + t.drafts.length)).join("");
+  const up = t.upcoming.map((x, i) => `<div class="item" data-open-person="${x.id}" style="--i:${i}">${avatar(x, "sm")}<div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub one">${esc(x.next_step)}</div></div><div class="meta"><span class="chip">${esc(x.track)}</span><span class="chip date">${icon("cal")} ${fmtDate(x.next_date)}</span></div></div>`).join("");
+  const none = !t.drafts.length && !t.due.length;
+  const parts = [];
+  if (t.drafts.length) parts.push(`${t.drafts.length} draft${t.drafts.length > 1 ? "s" : ""} to approve`);
+  if (t.due.length) parts.push(`${t.due.length} due`);
   return `<div class="screen">
-    <h1>Today</h1>
-    <p class="muted">${d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}</p>
+    <div class="hero"><div>
+      <p class="eyebrow">${d.toLocaleDateString(undefined, { weekday: "long" })}</p>
+      <h1>${d.toLocaleDateString(undefined, { day: "numeric", month: "long" })}</h1>
+      <p class="sub">${parts.length ? parts.join(" · ") : "A clear day. Add a person, write a draft, or log a call."}</p>
+    </div></div>
     ${friday}
-    ${empty ? `<div class="empty"><strong>Nothing to tick off.</strong>Add a person, write a draft, or log a call.</div>` : ""}
-    ${t.drafts.length ? `<h2>Drafts to approve · ${t.drafts.length}</h2><div class="list" id="drafts">${drafts}</div>` : ""}
-    ${t.due.length ? `<h2>Due · ${t.due.length}</h2><div class="list" id="due">${due}</div>` : ""}
+    ${none ? empty("sprout", "Nothing to tick off", "Press N to add a person, or L to log a call.") : ""}
+    ${t.drafts.length ? `<h2>Drafts to approve <em>${t.drafts.length}</em></h2><div class="list" id="drafts">${drafts}</div>` : ""}
+    ${t.due.length ? `<h2>Due <em>${t.due.length}</em></h2><div class="list" id="due">${due}</div>` : ""}
     ${t.upcoming.length ? `<h2>Coming up</h2><div class="list">${up}</div>` : ""}
   </div>`;
 }
 
-function draftItem(x) {
+function draftItem(x, i) {
   const open = state.openDraft === x.id;
   const to = x.channel === "email" ? (x.to_email || "no email on file") : (x.to_linkedin ? "LinkedIn" : "no LinkedIn on file");
   const body = open ? `<div class="expand">
@@ -100,20 +132,20 @@ function draftItem(x) {
       <div class="field"><label>Message</label><textarea data-f="body" rows="8">${esc(x.body)}</textarea></div>
       <div class="actions">
         ${x.channel === "email"
-          ? `<button class="primary" data-act="open-mail" ${x.to_email ? "" : "disabled"}>Open in mail</button>`
-          : `<button class="primary" data-act="open-linkedin">Copy + open LinkedIn</button>`}
+          ? `<button class="primary" data-act="open-mail" ${x.to_email ? "" : "disabled"}>${icon("mail")} Open in mail</button>`
+          : `<button class="primary" data-act="open-linkedin">${icon("link")} Copy + open LinkedIn</button>`}
         <button data-act="copy">Copy</button>
         <span class="spacer"></span>
-        <button data-act="sent">Mark sent</button>
+        <button data-act="sent">${icon("check")} Mark sent</button>
         <button class="ghost" data-act="skip">Skip</button>
       </div></div>` : "";
-  return `<div class="item ${open ? "open" : ""}" data-draft="${x.id}" data-email="${esc(x.to_email)}" data-linkedin="${esc(x.to_linkedin)}" data-channel="${x.channel}">
-    <span class="chip accent">${x.channel}</span>
-    <div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub">${esc(x.subject || x.body.slice(0, 90))}</div></div>
-    <span class="sub">${esc(to)}</span>${body}</div>`;
+  return `<div class="item ${open ? "open" : ""}" data-draft="${x.id}" data-email="${esc(x.to_email)}" data-linkedin="${esc(x.to_linkedin)}" data-channel="${x.channel}" style="--i:${i}">
+    ${avatar(x)}
+    <div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub one">${esc(x.subject || x.body.slice(0, 110))}</div></div>
+    <div class="meta"><span class="chip accent">${icon(x.channel === "email" ? "mail" : "link")} ${x.channel}</span><span class="sub small">${esc(to)}</span></div>${body}</div>`;
 }
 
-function dueItem(x) {
+function dueItem(x, i) {
   const open = state.openDue === x.id;
   const body = open ? `<div class="expand">
       <div class="field"><label>What happened?</label><textarea data-f="note" rows="3" placeholder="Short note for the timeline (optional)"></textarea></div>
@@ -122,12 +154,14 @@ function dueItem(x) {
         <div class="field"><label>Next step</label><input data-f="next_step" placeholder="e.g. Call to set a visit"></div>
         <div class="field"><label>When</label><input type="date" data-f="next_date"></div>
       </div>
-      <div class="actions"><button class="primary" data-act="done-save">Done</button><button data-act="log-call-here">Log a call instead</button><span class="spacer"></span><button class="ghost" data-open-person="${x.id}">Open person</button></div>
+      <div class="actions"><button class="primary" data-act="done-save">${icon("check")} Done</button><button data-act="log-call-here">${icon("phone")} Log a call instead</button>
+        <span class="snooze"><span class="muted small">Snooze</span><button class="ghost" data-snooze="1">+1 day</button><button class="ghost" data-snooze="3">+3 days</button><button class="ghost" data-snooze="7">+1 week</button></span>
+        <span class="spacer"></span><button class="ghost" data-open-person="${x.id}">Open person ${icon("arrow")}</button></div>
     </div>` : "";
-  return `<div class="item ${open ? "open" : ""}" data-due="${x.id}">
-    <button class="tick" title="Done"></button>
-    <div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub">${esc(x.next_step || "Follow up")}</div></div>
-    <span class="chip ${isOverdue(x.next_date) ? "overdue" : ""}">${isOverdue(x.next_date) ? "overdue · " : ""}${fmtDate(x.next_date)}</span>${body}</div>`;
+  return `<div class="item ${open ? "open" : ""}" data-due="${x.id}" style="--i:${i}">
+    <button class="tick" title="Done">${icon("check")}</button>
+    <div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub one">${esc(x.next_step || "Follow up")}</div></div>
+    <div class="meta"><span class="chip">${esc(x.track)}</span><span class="chip ${isOverdue(x.next_date) ? "overdue" : "date"}">${icon("cal")} ${isOverdue(x.next_date) ? "overdue · " : ""}${fmtDate(x.next_date)}</span></div>${body}</div>`;
 }
 
 async function renderReview() {
@@ -139,7 +173,7 @@ async function renderReview() {
   w.by_track.forEach((r) => { byTrack[r.track] = (byTrack[r.track] || 0) + r.c; });
   const yes = w.evidence.filter((e) => e.verdict === "yes").length, no = w.evidence.length - yes;
   return `<div class="card review">
-    <h3>Friday review · since ${fmtDate(w.since)}</h3>
+    <h3>Friday review <span class="muted">· since ${fmtDate(w.since)}</span></h3>
     <div class="stats">
       <div class="stat"><b>${sentN}</b><span>messages sent</span></div>
       <div class="stat"><b>${callsN}</b><span>calls / visits</span></div>
@@ -148,7 +182,7 @@ async function renderReview() {
       <div class="stat"><b>${w.insights.length}</b><span>insights to export</span></div>
     </div>
     ${w.calls.length ? `<p class="small muted">Calls</p><ul>${w.calls.map((c) => `<li><a href="#" data-open-person="${c.person_id}">${esc(c.name)}</a> <span class="muted">${esc(c.company)}</span> — ${esc(c.body.slice(0, 120))}</li>`).join("")}</ul>` : ""}
-    ${w.evidence.length ? `<p class="small muted">Evidence</p><ul>${w.evidence.map((e) => `<li><b class="${e.verdict === "yes" ? "" : ""}">${e.verdict === "yes" ? "✓" : "✗"}</b> ${esc(e.claim)} <span class="muted">— ${esc(e.person_name || "")}</span></li>`).join("")}</ul>` : ""}
+    ${w.evidence.length ? `<p class="small muted">Evidence</p><ul>${w.evidence.map((e) => `<li><b>${e.verdict === "yes" ? "✓" : "✗"}</b> ${esc(e.claim)} <span class="muted">— ${esc(e.person_name || "")}</span></li>`).join("")}</ul>` : ""}
     ${w.insights.length ? `<p class="small muted">Insights waiting for the vault</p><ul>${w.insights.map((i) => `<li><span class="chip">${i.module}</span> ${esc(i.text)}</li>`).join("")}</ul>` : ""}
     <div class="actions"><button class="primary" data-act="export" ${w.insights.length ? "" : "disabled"}>Export insights to vault</button><span class="muted small">People: ${Object.entries(byTrack).map(([k, v]) => `${k} ${v}`).join(" · ") || "none yet"}</span></div>
   </div>`;
@@ -161,46 +195,58 @@ async function renderPeople() {
   all.forEach((p) => { counts[p.track] = (counts[p.track] || 0) + 1; });
   const tabs = state.meta.tracks.map((t) => `<button class="${t === state.track ? "active" : ""}" data-track="${t}">${t}<span class="count">${counts[t] || 0}</span></button>`).join("");
   const people = all.filter((p) => p.track === state.track);
-  const cols = state.meta.stages[state.track].map((s) => {
-    const cards = people.filter((p) => p.stage === s).map(pcard).join("");
-    return `<div class="col" data-stage="${s}"><h3><span>${esc(stageLabel(s))}</span><span>${people.filter((p) => p.stage === s).length || ""}</span></h3>${cards}</div>`;
+  const stages = state.meta.stages[state.track];
+  const last = stages.length - 2; // index of the last real stage before 'closed'
+  const per = stages.map((s) => people.filter((p) => p.stage === s));
+  const funnel = stages.map((s, i) => `<span data-n="${per[i].length}" style="--n:${per[i].length};--p:${Math.min(1, i / last)}" title="${esc(stageLabel(s))}: ${per[i].length}"></span>`).join("");
+  const legend = stages.map((s, i) => `<span><b>${per[i].length}</b>${esc(stageLabel(s))}</span>`).join("");
+  let k = 0;
+  const cols = stages.map((s, i) => {
+    const cards = per[i].map((p) => pcard(p, k++)).join("");
+    return `<div class="col ${s === "closed" ? "closed" : ""}" data-stage="${s}"><h3><i class="sd" style="--p:${Math.min(1, i / last)}"></i><span>${esc(stageLabel(s))}</span><span class="n">${per[i].length || ""}</span></h3>${cards}</div>`;
   }).join("");
   return `<div class="screen">
-    <div class="actions"><h1>People</h1><span class="spacer"></span><button class="primary" data-act="new-person">+ Person<kbd>N</kbd></button></div>
+    <div class="hero"><div><p class="eyebrow">Pipeline</p><h1>People</h1><p class="sub">${all.length ? `${people.length} in ${state.track} · ${all.length} in all` : "Everyone you are talking to, by track and stage."}</p></div>
+      <div class="right"><button class="primary" data-act="new-person">+ Person<kbd>N</kbd></button></div></div>
     <div class="tabs">${tabs}</div>
-    ${all.length ? "" : `<div class="empty"><strong>No one yet.</strong>Press N to add the first person.</div>`}
+    ${people.length ? `<div class="funnel">${funnel}</div><div class="funnel-legend">${legend}</div>` : ""}
+    ${all.length ? "" : empty("seed", "No one yet", "Press N to add the first person. Drag cards between stages as things move.")}
     <div class="board">${cols}</div>
   </div>`;
 }
-function pcard(p) {
+function pcard(p, i) {
   const od = isOverdue(p.next_date);
-  return `<div class="pcard" draggable="true" data-person="${p.id}">
+  return `<div class="pcard" draggable="true" data-person="${p.id}" style="--i:${i}">
+    ${avatar(p)}
     <div class="name">${esc(p.name)}</div>
-    ${p.company ? `<div class="company">${esc(p.company)}</div>` : ""}
-    ${p.next_step || p.next_date ? `<div class="next ${od ? "overdue" : ""}">${p.next_date ? `<b>${fmtDate(p.next_date)}</b>` : ""}<span>${esc(p.next_step)}</span></div>` : ""}
+    <div class="company">${esc(p.company || "—")}</div>
+    ${p.next_step || p.next_date ? `<div class="next ${od ? "overdue" : ""}">${icon("cal")}${p.next_date ? `<b>${fmtDate(p.next_date)}</b>` : ""}<span>${esc(p.next_step)}</span></div>` : ""}
   </div>`;
 }
 
 // ---------------------------------------------------------- hypotheses ----
 async function renderHypotheses() {
-  const hs = await get("/api/hypotheses");
+  const all = await get("/api/hypotheses");
+  const hs = state.hypTrack ? all.filter((h) => h.track === state.hypTrack) : all;
   const live = hs.filter((h) => h.status !== "revised"), old = hs.filter((h) => h.status === "revised");
+  const holding = all.filter((h) => h.status === "holding").length, dis = all.filter((h) => h.status === "disproved").length;
+  const tabs = ["", ...state.meta.tracks].map((t) => `<button class="${t === state.hypTrack ? "active" : ""}" data-hyp-track="${t}">${t || "all"}<span class="count">${(t ? all.filter((h) => h.track === t) : all).length}</span></button>`).join("");
   return `<div class="screen">
-    <div class="actions"><h1>Hypotheses</h1><span class="spacer"></span><button class="primary" data-act="new-hyp">+ Hypothesis<kbd>H</kbd></button></div>
-    <p class="muted">Pitch one to three on every call: "We think X. Is that true for you?" Dots fill as people agree or disagree.</p>
-    ${hs.length ? "" : `<div class="empty"><strong>No guesses yet.</strong>Write down what you believe before the next call.</div>`}
-    <div class="hgrid">${live.map(hcard).join("")}</div>
-    ${old.length ? `<h2>Revised</h2><div class="hgrid">${old.map(hcard).join("")}</div>` : ""}
+    <div class="hero"><div><p class="eyebrow">What we believe</p><h1>Hypotheses</h1><p class="sub">${all.length ? `${holding} holding · ${dis} disproved · ${all.length - holding - dis} still open` : "Pitch one to three on every call: “We think X. Is that true for you?”"}</p></div>
+      <div class="right"><button class="primary" data-act="new-hyp">+ Hypothesis<kbd>H</kbd></button></div></div>
+    <div class="tabs">${tabs}</div>
+    ${all.length ? "" : empty("bulb", "No guesses yet", "Write down what you believe before the next call. Dots fill as people agree or disagree.")}
+    <div class="hgrid">${live.map((h, i) => hcard(h, i)).join("")}</div>
+    ${old.length ? `<h2>Revised</h2><div class="hgrid">${old.map((h, i) => hcard(h, i)).join("")}</div>` : ""}
   </div>`;
 }
 function dots(n, cls, thr) {
-  const slots = Math.max(thr, n);
   let s = `<div class="dotrow ${cls}"><span class="lbl">${cls === "yes" ? "✓" : "✗"}</span>`;
-  for (let i = 0; i < Math.min(slots, thr); i++) s += `<span class="d ${i < n ? "on" : ""}"></span>`;
+  for (let i = 0; i < thr; i++) s += `<span class="d ${i < n ? "on" : ""}"></span>`;
   if (n > thr) s += `<span class="more">+${n - thr}</span>`;
   return s + "</div>";
 }
-function hcard(h) {
+function hcard(h, i) {
   const open = state.openHyp === h.id;
   const thr = state.meta.threshold;
   const status = { untested: "", holding: "accent", disproved: "no", revised: "" }[h.status];
@@ -220,19 +266,18 @@ function hcard(h) {
       </div>
       <div class="field" data-revise-box style="display:none;margin-top:.6rem"><label>New version of this claim</label><div class="row"><input data-f="revised" placeholder="What you believe now"><button class="primary" data-act="revise-save" style="flex:0">Save</button></div></div>
     </div>` : "";
-  return `<div class="card hcard ${open ? "open" : ""} ${h.status === "revised" ? "revised" : ""}" data-hyp="${h.id}">
+  return `<div class="card hcard ${open ? "open" : ""} ${h.status === "revised" ? "revised" : ""}" data-hyp="${h.id}" style="--i:${i}">
     <div class="actions"><span class="chip ${status}">${h.status}</span>${h.track ? `<span class="chip">${esc(h.track)}</span>` : ""}${h.module ? `<span class="chip">${esc(h.module)}</span>` : ""}${h.revised_from ? `<span class="muted small">from #${h.revised_from}</span>` : ""}</div>
     <div class="claim">${esc(h.claim)}</div>
     <div class="dots">${dots(h.yes, "yes", thr)}${dots(h.no, "no", thr)}</div>
-    ${h.source ? `<p class="muted small" style="margin-top:.5rem">${esc(h.source)}</p>` : ""}
+    <p class="muted small" style="margin-top:.6rem">${h.source ? esc(h.source) + " · " : ""}${h.yes + h.no} call${h.yes + h.no === 1 ? "" : "s"}</p>
     ${body}</div>`;
 }
 
 // ---------------------------------------------------------------- wire ----
 function wire(main) {
-  // tabs
   $$("[data-track]", main).forEach((b) => b.onclick = () => { state.track = b.dataset.track; try { localStorage.setItem("track", state.track); } catch {} render(); });
-  // open person
+  $$("[data-hyp-track]", main).forEach((b) => b.onclick = () => { state.hypTrack = b.dataset.hypTrack; render(); });
   $$("[data-open-person]", main).forEach((el) => el.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openDrawer(+el.dataset.openPerson); }));
   // drafts
   $$("[data-draft]", main).forEach((it) => {
@@ -275,9 +320,14 @@ function wire(main) {
         it.classList.add("gone"); state.openDue = null; toast("Done"); setTimeout(render, 350);
       } else if (b.dataset.act === "log-call-here") { state.openDue = null; openCallModal(id); }
     }));
+    $$("[data-snooze]", it).forEach((b) => b.onclick = guard(async (e) => {
+      e.stopPropagation();
+      const days = +b.dataset.snooze;
+      await api("PATCH", `/api/people/${id}`, { next_date: addDays(days) });
+      it.classList.add("gone"); state.openDue = null; toast(`Snoozed to ${fmtDate(addDays(days))}`); setTimeout(render, 350);
+    }));
     if (state.openDue === id) { $(".tick", it).classList.add("on"); $("[data-f=note]", it).focus(); }
   });
-  // export
   const ex = $("[data-act=export]", main);
   if (ex) ex.onclick = guard(async () => {
     const r = await api("POST", "/api/insights/export");
@@ -355,7 +405,7 @@ async function openDrawer(id) {
   const touches = p.touches.map((t) => `<div class="touch"><span class="when">${fmtWhen(t.at)}</span><div><span class="chip">${t.kind}</span> <span class="body">${esc(t.body)}</span>${t.transcript ? `<details><summary>transcript</summary><pre>${esc(t.transcript)}</pre></details>` : ""}</div><button class="link" data-del-touch="${t.id}">×</button></div>`).join("");
   const ev = p.evidence.map((e) => `<div class="ev"><span class="v ${e.verdict}">${e.verdict === "yes" ? "✓" : "✗"}</span><div>${esc(e.claim)}${e.quote ? `<br><q>${esc(e.quote)}</q>` : ""}</div><span></span></div>`).join("");
   dr.innerHTML = `
-    <div class="head"><div style="flex:1"><input class="big" data-f="name" value="${esc(p.name)}" placeholder="Name"><input class="co" data-f="company" value="${esc(p.company)}" placeholder="Company"></div><button class="icon close" data-act="close">×</button></div>
+    <div class="head">${avatar(p)}<div style="flex:1"><input class="big" data-f="name" value="${esc(p.name)}" placeholder="Name"><input class="co" data-f="company" value="${esc(p.company)}" placeholder="Company"></div><button class="icon close" data-act="close">×</button></div>
     <div class="row">
       <div class="field"><label>Track</label><select data-f="track">${trackOpts(p.track)}</select></div>
       <div class="field"><label>Stage</label><select data-f="stage">${stageOpts(p.track, p.stage)}</select></div>
@@ -364,21 +414,22 @@ async function openDrawer(id) {
       <div class="field" style="flex:2"><label>Next step</label><input data-f="next_step" value="${esc(p.next_step)}" placeholder="What happens next"></div>
       <div class="field"><label>When</label><input type="date" data-f="next_date" value="${esc(p.next_date)}"></div>
     </div>
-    <details ${p.email || p.linkedin ? "" : "open"}><summary class="muted small" style="cursor:pointer;margin-bottom:.5rem">Contact · ${esc(p.email || p.linkedin || p.phone || "none yet")}</summary>
+    <details ${p.email || p.linkedin ? "" : "open"}><summary>Contact · ${esc(p.email || p.linkedin || p.phone || "none yet")}</summary>
       <div class="row"><div class="field"><label>Email</label><input data-f="email" value="${esc(p.email)}"></div><div class="field"><label>Language</label><select data-f="language">${langOpts(p.language)}</select></div></div>
       <div class="row"><div class="field"><label>LinkedIn</label><input data-f="linkedin" value="${esc(p.linkedin)}" placeholder="https://linkedin.com/in/…"></div><div class="field"><label>Phone</label><input data-f="phone" value="${esc(p.phone)}"></div></div>
     </details>
     ${p.referrer ? `<p class="small muted" style="margin:.5rem 0">Referred by <a href="#" data-open-person="${p.referrer.id}">${esc(p.referrer.name)}</a></p>` : ""}
     ${p.referrals.length ? `<p class="small muted" style="margin:.5rem 0">Referred: ${p.referrals.map((r) => `<a href="#" data-open-person="${r.id}">${esc(r.name)}</a>`).join(", ")}</p>` : ""}
     <div class="actions" style="margin-top:1rem">
-      <button class="primary" data-act="call">Log a call</button>
-      <button data-act="draft-email">Draft email</button>
-      <button data-act="draft-linkedin">Draft LinkedIn</button>
+      <button class="primary" data-act="call">${icon("phone")} Log a call</button>
+      <button data-act="draft-email">${icon("mail")} Draft email</button>
+      <button data-act="draft-linkedin">${icon("link")} Draft LinkedIn</button>
       <button data-act="referral">Who else? +</button>
     </div>
     <div data-ref-box style="display:none;margin-top:.8rem" class="card"><label>They suggested talking to…</label><div class="row"><input data-f="ref_name" placeholder="Name"><input data-f="ref_company" placeholder="Company"><button class="primary" data-act="ref-save" style="flex:0">Add</button></div></div>
     <div class="timeline">
-      <h2 style="margin-top:1.4rem">Timeline · ${p.touches.length}</h2>
+      <h2 style="margin-top:1.6rem">Timeline <em>${p.touches.length}</em></h2>
+      <div class="quick"><select data-f="qkind">${options(state.meta.touch_kinds, "note")}</select><input data-f="qnote" placeholder="Quick note… Enter to add"></div>
       ${touches || `<p class="muted small">Nothing yet.</p>`}
       ${ev ? `<h2>Hypotheses</h2>${ev}` : ""}
     </div>
@@ -386,7 +437,6 @@ async function openDrawer(id) {
   dr.classList.add("show"); $("#drawer-scrim").classList.add("show");
   const close = () => { dr.classList.remove("show"); $("#drawer-scrim").classList.remove("show"); state.drawerId = null; render(); };
   $("[data-act=close]", dr).onclick = close; $("#drawer-scrim").onclick = close;
-  // autosave
   const fields = ["name", "company", "track", "stage", "next_step", "next_date", "email", "linkedin", "phone", "language"];
   fields.forEach((f) => { const el = $(`[data-f=${f}]`, dr); el.onchange = guard(async () => {
     const data = { [f]: el.value };
@@ -395,6 +445,12 @@ async function openDrawer(id) {
     if (f === "track") $("[data-f=stage]", dr).innerHTML = stageOpts(np.track, np.stage);
     toast("Saved");
   }); });
+  $("[data-f=qnote]", dr).onkeydown = guard(async (e) => {
+    if (e.key !== "Enter") return;
+    const body = e.target.value.trim(); if (!body) return;
+    await api("POST", `/api/people/${id}/touches`, { kind: $("[data-f=qkind]", dr).value, body });
+    toast("Added to timeline"); openDrawer(id);
+  });
   $$("[data-open-person]", dr).forEach((a) => a.onclick = (e) => { e.preventDefault(); openDrawer(+a.dataset.openPerson); });
   $$("[data-del-touch]", dr).forEach((b) => b.onclick = guard(async () => { await api("DELETE", `/api/touches/${b.dataset.delTouch}`); openDrawer(id); }));
   $("[data-act=call]", dr).onclick = () => openCallModal(id);
@@ -440,7 +496,7 @@ function openPersonModal(track) {
 function openHypModal() {
   const m = openModal(`<h2>New hypothesis</h2>
     <div class="field"><label>We think…</label><textarea data-f="claim" rows="3" placeholder="e.g. Growers would rather rent a robot per season than buy one"></textarea></div>
-    <div class="row"><div class="field"><label>Track</label><select data-f="track"><option value="">any</option>${trackOpts("")}</select></div><div class="field"><label>Module</label><select data-f="module"><option value="">none</option>${moduleOpts("")}</select></div></div>
+    <div class="row"><div class="field"><label>Track</label><select data-f="track"><option value="">any</option>${trackOpts(state.hypTrack)}</select></div><div class="field"><label>Module</label><select data-f="module"><option value="">none</option>${moduleOpts("")}</select></div></div>
     <div class="field"><label>Where it came from</label><input data-f="source" placeholder="report, a call, own guess"></div>
     <div class="actions"><span class="spacer"></span><button class="ghost" data-act="cancel">Cancel</button><button class="primary" data-act="save">Add</button></div>`, true);
   $("[data-f=claim]", m).focus();
@@ -465,7 +521,7 @@ function openDraftModal(p, channel) {
   if (ai) ai.onclick = guard(async () => {
     ai.disabled = true; $("[data-busy]", m).style.display = "";
     try {
-      const d = await api("POST", `/api/people/${p.id}/drafts/generate`, { channel, about: $("[data-f=about]", m).value });
+      await api("POST", `/api/people/${p.id}/drafts/generate`, { channel, about: $("[data-f=about]", m).value });
       closeModal(); toast("Draft saved to Today"); if (state.screen === "today") render();
     } finally { ai.disabled = false; }
   });
@@ -478,7 +534,7 @@ function openDraftModal(p, channel) {
 
 // ------------------------------------------------------------- log call ----
 async function openCallModal(personId) {
-  const hyps = (await get("/api/hypotheses?all=0"));
+  const hyps = await get("/api/hypotheses?all=0");
   const person = personId ? await get(`/api/people/${personId}`) : null;
   const tr = state.meta.transcriber;
   const m = openModal(`<h2>Log a call</h2>
@@ -515,7 +571,6 @@ async function openCallModal(personId) {
     $("[data-f=stage]", m).innerHTML = `<option value="">keep</option>` + (current ? stageOpts(current.track, "__") : "");
   });
   $("[data-act=cancel]", m).onclick = closeModal;
-  // audio drop
   const drop = $("[data-drop]", m), file = $("input[type=file]", drop);
   drop.onclick = () => file.click();
   drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
@@ -533,13 +588,11 @@ async function openCallModal(personId) {
   });
   drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); handle(e.dataTransfer.files[0]); };
   file.onchange = () => handle(file.files[0]);
-  // segments
   const wireSeg = (row) => $$(".seg button", row).forEach((b) => b.onclick = () => {
     $$(".seg button", row).forEach((x) => x.classList.remove("on")); b.classList.add("on");
     $("[data-f=quote]", row).style.display = b.dataset.v === "skip" ? "none" : "";
   });
   $$(".vrow", m).forEach(wireSeg);
-  // referrals / insights rows
   const addRef = (name = "", company = "") => {
     const d = document.createElement("div"); d.className = "lrow";
     d.innerHTML = `<input type="checkbox" checked><div class="row"><input data-f="rname" placeholder="Name" value="${esc(name)}"><input data-f="rcompany" placeholder="Company" value="${esc(company)}"></div><button class="link" data-x>×</button>`;
@@ -552,7 +605,6 @@ async function openCallModal(personId) {
   };
   $("[data-act=add-ref]", m).onclick = () => addRef();
   $("[data-act=add-ins]", m).onclick = () => addIns();
-  // suggest
   $("[data-act=suggest]", m).onclick = guard(async () => {
     if (!current) return toast("Pick a person first", true);
     const transcript = $("[data-f=transcript]", m).value.trim();
@@ -569,7 +621,6 @@ async function openCallModal(personId) {
       toast("Suggestions filled in. Check them, then save.");
     } finally { b.disabled = false; $("[data-busy]", m).style.display = "none"; }
   });
-  // save
   $("[data-act=save]", m).onclick = guard(async () => {
     if (!current) return toast("Pick a person first", true);
     const verdicts = $$(".vrow", m).map((r) => ({ hypothesis_id: +r.dataset.hid, verdict: $(".seg .on", r).dataset.v, quote: $("[data-f=quote]", r).value })).filter((v) => v.verdict !== "skip");
@@ -598,13 +649,13 @@ function openPalette() {
     { t: "Toggle dark mode", k: "", f: toggleTheme },
   ];
   let items = [], sel = 0;
-  const paint = () => { res.innerHTML = items.map((it, i) => `<div class="r ${i === sel ? "sel" : ""}" data-i="${i}"><span>${esc(it.t)}</span>${it.sub ? `<span class="muted small">${esc(it.sub)}</span>` : ""}<span class="k">${esc(it.k || "")}</span></div>`).join("") || `<div class="r muted">No matches</div>`;
+  const paint = () => { res.innerHTML = items.map((it, i) => `<div class="r ${i === sel ? "sel" : ""}" data-i="${i}">${it.av || ""}<span>${esc(it.t)}</span>${it.sub ? `<span class="muted small">${esc(it.sub)}</span>` : ""}<span class="k">${esc(it.k || "")}</span></div>`).join("") || `<div class="r muted">No matches</div>`;
     $$(".r[data-i]", res).forEach((el) => el.onclick = () => pick(+el.dataset.i)); };
   const pick = (i) => { const it = items[i]; if (!it) return; closePalette(); it.f(); };
   const search = async () => {
     const q = input.value.trim().toLowerCase();
     const acts = actions.filter((a) => !q || a.t.toLowerCase().includes(q));
-    const people = q ? (await get(`/api/search?q=${encodeURIComponent(q)}`)).map((p) => ({ t: p.name, sub: `${p.company || ""} · ${p.track} · ${stageLabel(p.stage)}`, k: "", f: () => openDrawer(p.id) })) : [];
+    const people = q ? (await get(`/api/search?q=${encodeURIComponent(q)}`)).map((p) => ({ t: p.name, av: avatar(p, "sm"), sub: `${p.company || ""} · ${p.track} · ${stageLabel(p.stage)}`, k: "", f: () => openDrawer(p.id) })) : [];
     items = [...people, ...acts]; sel = 0; paint();
   };
   input.oninput = search;

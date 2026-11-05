@@ -5,18 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vinea CRM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header class="top">
-  <div class="brand"><span class="dot"></span>Vinea</div>
+  <div class="brand"><svg class="leaf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20c0-9 5-15 16-16-1 11-7 16-16 16z"/><path d="M4 20c4-5 8-8 12-10"/></svg>Vinea</div>
   <nav class="screens" id="nav">
     <button data-screen="today">Today<kbd>1</kbd></button>
     <button data-screen="people">People<kbd>2</kbd></button>
     <button data-screen="hypotheses">Hypotheses<kbd>3</kbd></button>
   </nav>
   <div class="top-actions">
+    <div class="pulse" id="pulse" title="Touches this week"></div>
     <button class="ghost" id="btn-search" title="Search (Ctrl+K)">Search<kbd>⌘K</kbd></button>
     <button class="primary" id="btn-call" title="Log a call (L)">Log a call</button>
     <button class="icon" id="btn-theme" title="Light / dark">◐</button>

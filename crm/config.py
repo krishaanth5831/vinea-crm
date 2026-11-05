@@ -59,6 +59,10 @@ FOLLOW_UP_DAYS = 7
 VAULT_VINEA = Path.home() / "Desktop/personal_projects/k7_ideaverse_2.0/03 Projects/Vinea"
 VAULT_MODULES = VAULT_VINEA / "08 Modules"
 
+# Pace: the "Lucas-max" target of touches per week (messages + calls). The
+# ring in the top bar fills towards it.
+WEEKLY_TOUCH_TARGET = 100
+
 # Port for the local web app.
 PORT = 5566
 
