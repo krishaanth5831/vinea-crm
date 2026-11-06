@@ -138,6 +138,7 @@ h2 .cal-settings { margin-left: .6rem; font-weight: 500; text-transform: none; l
 .item.cal .cal-when { color: var(--muted); font-size: .8rem; min-width: 7.2rem; }
 .item.cal.today .cal-when { color: var(--accent); font-weight: 600; }
 .item.cal .meta .chip { text-decoration: none; cursor: pointer; }
+.row > .cal-add { flex: 0 0 auto; }
 .cal-add a.button { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; padding: .55rem .8rem; border: 1px solid var(--border); border-radius: 9px; color: var(--muted); text-decoration: none; font-size: .85rem; }
 .cal-add a.button:hover { color: var(--accent); border-color: var(--accent); }
 .cal-planned { margin: -.3rem 0 .8rem; }
