@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import calendar as cal
 from . import calls, config, db, vault
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -49,7 +50,32 @@ def create_app(db_path=None) -> FastAPI:
             "is_friday": date.today().weekday() == 4,
             "transcriber": calls.transcription_backend(),
             "claude": calls.claude_available(),
+            "calendar": bool(db.get_setting(conn, "calendar_ics")),
         }
+
+    @app.post("/api/settings")
+    async def settings(req: Request):
+        d = await req.json()
+        if "calendar_ics" in d:
+            url = (d["calendar_ics"] or "").strip()
+            if url and not url.startswith(("https://", "http://", "webcal://")):
+                raise ValueError("paste the full iCal address, it starts with https://")
+            db.set_setting(conn, "calendar_ics", url.replace("webcal://", "https://"))
+            cal.forget_cache()
+        return {"ok": True}
+
+    # -------------------------------------------------------- calendar ----
+    @app.get("/api/calendar")
+    def calendar(days: int = 7):
+        url = db.get_setting(conn, "calendar_ics")
+        if not url:
+            return {"connected": False, "events": []}
+        try:
+            events = cal.upcoming(url, days=max(1, min(days, 60)))
+        except Exception as exc:  # network, bad feed
+            return {"connected": True, "events": [], "error": f"calendar not reachable: {exc}"}
+        people = db.list_people(conn)
+        return {"connected": True, "events": cal.match_people(events, people)}
 
     # ----------------------------------------------------------- today ----
     @app.get("/api/today")

@@ -212,3 +212,61 @@ def test_old_database_gets_channels(tmp_path):
     got = [(t["kind"], t["channel"]) for t in db.get_person(conn, 1)["touches"]]
     assert sorted(got) == sorted([("message", "email"), ("message", "linkedin"), ("call", "phone"), ("visit", "in person"), ("note", "")])
     assert db.get_person(conn, 1)["channel"] == ""
+
+
+ICS = """BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:a1
+DTSTART:{d1}T090000Z
+DTEND:{d1}T100000Z
+SUMMARY:Call with Ali Khaleel (Agrocare)
+DESCRIPTION:about deleafing\\, then visit
+END:VEVENT
+BEGIN:VEVENT
+UID:a2
+DTSTART;VALUE=DATE:{d2}
+SUMMARY:Westland trip
+LOCATION:Naaldwijk
+END:VEVENT
+BEGIN:VEVENT
+UID:a3
+DTSTART:20200101T090000Z
+DTEND:20200101T100000Z
+SUMMARY:Ancient
+END:VEVENT
+BEGIN:VEVENT
+UID:a4
+DTSTART:{d1}T120000Z
+DTEND:{d1}T130000Z
+SUMMARY:Cancelled thing
+STATUS:CANCELLED
+END:VEVENT
+END:VCALENDAR
+"""
+
+
+def test_calendar_parse_match_and_link(client, monkeypatch):
+    from crm import calendar as cal
+    d1 = date.today().strftime("%Y%m%d")
+    d2 = (date.today() + timedelta(days=2)).strftime("%Y%m%d")
+    monkeypatch.setattr(cal, "fetch_ics", lambda url: ICS.format(d1=d1, d2=d2))
+    cal.forget_cache()
+    p = person(client)
+    # not connected yet
+    assert client.get("/api/calendar").json() == {"connected": False, "events": []}
+    assert client.get("/api/meta").json()["calendar"] is False
+    assert client.post("/api/settings", json={"calendar_ics": "not a url"}).status_code == 400
+    client.post("/api/settings", json={"calendar_ics": "webcal://calendar.google.com/x/basic.ics"})
+    assert client.get("/api/meta").json()["calendar"] is True
+    c = client.get("/api/calendar?days=7").json()
+    titles = [e["summary"] for e in c["events"]]
+    assert titles == ["Call with Ali Khaleel (Agrocare)", "Westland trip"]  # old + cancelled dropped, sorted
+    assert c["events"][0]["people"][0]["id"] == p["id"]
+    assert c["events"][0]["all_day"] is False and c["events"][1]["all_day"] is True
+    assert c["events"][1]["people"] == []
+    # description unescaped, and a prefilled Google Calendar link
+    link = cal.event_link("Visit · Ali", "2026-11-20", "x y")
+    assert "action=TEMPLATE" in link and "20261120T100000/20261120T103000" in link and "Visit%20%C2%B7%20Ali" in link
+    # disconnect
+    client.post("/api/settings", json={"calendar_ics": ""})
+    assert client.get("/api/calendar").json()["connected"] is False
