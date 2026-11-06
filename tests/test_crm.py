@@ -78,6 +78,15 @@ def test_draft_sent_books_follow_up(client):
     assert client.post(f"/api/people/{p['id']}/drafts", json={"channel": "fax"}).status_code == 400
 
 
+def test_draft_sent_with_phone_books_a_call(client):
+    p = person(client, email="bo@example.com", phone="0174 123 456")
+    d = client.post(f"/api/people/{p['id']}/drafts", json={"channel": "email", "subject": "Hi", "body": "Hello"}).json()
+    client.patch(f"/api/drafts/{d['id']}", json={"status": "sent"})
+    p2 = client.get(f"/api/people/{p['id']}").json()
+    assert p2["next_step"] == "No reply? Call 0174 123 456"
+    assert p2["next_date"] == (date.today() + timedelta(days=config.FOLLOW_UP_DAYS)).isoformat()
+
+
 def test_hypothesis_dots_and_auto_status(client):
     h = client.post("/api/hypotheses", json={"claim": "Growers rent, not buy", "track": "growers"}).json()
     assert h["status"] == "untested"

@@ -352,7 +352,11 @@ def update_draft(conn, did: int, data: dict) -> dict:
         stage = "contacted" if p["stage"] == "new" else p["stage"]
         next_step, next_date = p["next_step"], p["next_date"]
         if not next_date:
-            next_step = "Follow up" if not next_step else next_step
+            # No reply by then? With a number on file the follow-up is a
+            # call, which lands on Today as "Call ..." with the number.
+            phone = (p["phone"] or "").strip()
+            if not next_step:
+                next_step = f"No reply? Call {phone}" if phone else "Follow up"
             next_date = (date.today() + timedelta(days=config.FOLLOW_UP_DAYS)).isoformat()
         conn.execute(
             "UPDATE people SET stage = ?, next_step = ?, next_date = ?, updated_at = ? WHERE id = ?",
