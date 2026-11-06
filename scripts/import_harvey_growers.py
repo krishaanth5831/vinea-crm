@@ -73,8 +73,9 @@ def main(path: str, track: str = "growers") -> None:
             drafts += 1
         # Same for LinkedIn: no profile URL on file = no LinkedIn draft.
         if r["linkedin"] and r["linkedin_message"] and "linkedin" not in have:
-            body = r["linkedin_note"].strip() + "\n\n" + r["linkedin_message"].strip()
-            db.create_draft(conn, pid, "linkedin", body=body)
+            # Note and message in their own boxes (subject = connection note).
+            db.create_draft(conn, pid, "linkedin", subject=r["linkedin_note"].strip(),
+                            body=r["linkedin_message"].strip())
             drafts += 1
     print(f"CRM: {made} people added, {drafts} drafts on Today ({config.DB_PATH})")
 

@@ -175,23 +175,32 @@ function draftItem(x, i) {
   const to = x.channel === "email" ? (x.to_email || "no email on file")
     : x.channel === "whatsapp" ? (x.to_phone || "no phone on file")
     : (x.to_linkedin ? "LinkedIn" : "no LinkedIn on file");
+  const li = x.channel === "linkedin";
+  const twoStep = li && !!x.subject;  // connection note + message for after they accept
+  const fields = li
+    ? `<div class="li-steps">
+        ${twoStep ? `<div class="li-step"><div class="head"><span class="step">1 · Connection note</span><span class="count ${x.subject.length > 300 ? "over" : ""}" data-count>${x.subject.length} / 300</span></div><textarea data-f="subject" rows="3">${esc(x.subject)}</textarea></div>` : ""}
+        <div class="li-step"><div class="head"><span class="step">${twoStep ? "2 · " : ""}Message after they accept</span></div><textarea data-f="body" rows="6">${esc(x.body)}</textarea></div>
+      </div>`
+    : `${x.channel === "email" ? `<div class="field"><label>Subject</label><input data-f="subject" value="${esc(x.subject)}"></div>` : ""}
+      <div class="field"><label>Message</label><textarea data-f="body" rows="8">${esc(x.body)}</textarea></div>`;
   const body = open ? `<div class="expand">
-      ${x.channel === "email" ? `<div class="field"><label>Subject</label><input data-f="subject" value="${esc(x.subject)}"></div>` : ""}
-      <div class="field"><label>Message</label><textarea data-f="body" rows="8">${esc(x.body)}</textarea></div>
+      ${fields}
       <div class="actions">
         ${x.channel === "email"
           ? `<button class="primary" data-act="open-mail" ${x.to_email ? "" : "disabled"}>${icon("mail")} Open in mail</button>`
           : x.channel === "whatsapp"
           ? `<button class="primary" data-act="open-whatsapp" ${x.to_phone ? "" : "disabled"}>${icon("chat")} Open in WhatsApp</button>`
-          : `<button class="primary" data-act="open-linkedin">${icon("link")} Copy + open LinkedIn</button>`}
-        <button data-act="copy">Copy</button>
+          : `<button class="primary" data-act="open-linkedin">${icon("link")} ${twoStep ? "Copy note + open LinkedIn" : "Copy message + open LinkedIn"}</button>`}
+        <button data-act="copy">${twoStep ? "Copy message" : "Copy"}</button>
         <span class="spacer"></span>
-        <button data-act="sent">${icon("check")} Mark sent</button>
+        <button data-act="sent">${icon("check")} ${twoStep ? "Note sent" : "Mark sent"}</button>
         <button class="ghost" data-act="skip">Skip</button>
       </div></div>` : "";
+  const line = x.subject || ((li ? "After they accept · " : "") + x.body.slice(0, 110));
   return `<div class="item ${open ? "open" : ""}" data-draft="${x.id}" data-email="${esc(x.to_email)}" data-linkedin="${esc(x.to_linkedin)}" data-phone="${esc(x.to_phone)}" data-channel="${x.channel}" style="--i:${i}">
     ${avatar(x)}
-    <div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub one">${esc(x.subject || x.body.slice(0, 110))}</div></div>
+    <div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub one">${esc(line)}</div></div>
     <div class="meta">${chChip(x.channel, "accent")}<span class="sub small">${esc(to)}</span></div>${body}</div>`;
 }
 
@@ -342,10 +351,15 @@ function wire(main) {
       state.openDraft = state.openDraft === id ? null : id; render();
     });
     const vals = () => ({ subject: $("[data-f=subject]", it)?.value ?? "", body: $("[data-f=body]", it)?.value ?? "" });
+    const note = $("[data-f=subject]", it), count = $("[data-count]", it);
+    if (note && count && it.dataset.channel === "linkedin") note.addEventListener("input", () => {
+      count.textContent = `${note.value.length} / 300`; count.classList.toggle("over", note.value.length > 300);
+    });
     const save = guard(async (status) => {
       await api("PATCH", `/api/drafts/${id}`, { ...vals(), status });
       it.classList.add("gone"); state.openDraft = null;
-      toast(status === "sent" ? "Marked sent, follow-up booked" : "Skipped");
+      const v = vals();
+      toast(status !== "sent" ? "Skipped" : it.dataset.channel === "linkedin" && v.subject ? "Note sent. The message waits on Today for when they accept" : "Marked sent, follow-up booked");
       setTimeout(render, 350);
     });
     $$("[data-act]", it).forEach((b) => b.onclick = guard(async (e) => {
@@ -357,7 +371,8 @@ function wire(main) {
         location.href = `mailto:${encodeURIComponent(it.dataset.email)}?subject=${encodeURIComponent(v.subject)}&body=${encodeURIComponent(v.body)}`;
       } else if (act === "open-linkedin") {
         await api("PATCH", `/api/drafts/${id}`, v);
-        await navigator.clipboard.writeText(v.body); toast("Copied. Paste it on LinkedIn.");
+        // Two boxes: the note is what goes with the connection request.
+        await navigator.clipboard.writeText(v.subject || v.body); toast(v.subject ? "Note copied. Paste it with the connection request." : "Message copied. Paste it on LinkedIn.");
         if (it.dataset.linkedin) window.open(it.dataset.linkedin, "_blank");
       } else if (act === "open-whatsapp") {
         await api("PATCH", `/api/drafts/${id}`, v);
@@ -591,7 +606,10 @@ function openDraftModal(p, channel) {
     ${canAI ? `<div class="field"><label>Anything Claude should know about them (optional)</label><input data-f="about" placeholder="e.g. grows cherry tomatoes near Westland, posted about labour costs"></div>
     <div class="actions" style="margin-bottom:1rem"><button data-act="ai">Draft with Claude</button><span class="busy" data-busy style="display:none">Writing…</span></div>` : `<p class="muted small" style="margin-bottom:.8rem">The claude CLI is not on PATH, so write it by hand.</p>`}
     ${channel === "email" ? `<div class="field"><label>Subject</label><input data-f="subject"></div>` : ""}
-    <div class="field"><label>Message</label><textarea data-f="body" rows="9" placeholder="${channel === "linkedin" ? "Connection note first (under 280 characters), blank line, then the first message." : channel === "whatsapp" ? "Short, like a text. One ask." : ""}"></textarea></div>
+    ${channel === "linkedin"
+      ? `<div class="li-steps"><div class="li-step"><div class="head"><span class="step">1 · Connection note</span><span class="count">under 300 characters</span></div><textarea data-f="subject" rows="3" placeholder="Why you want to connect, in two sentences."></textarea></div>
+         <div class="li-step"><div class="head"><span class="step">2 · Message after they accept</span></div><textarea data-f="body" rows="7" placeholder="The real message, with one question."></textarea></div></div>`
+      : `<div class="field"><label>Message</label><textarea data-f="body" rows="9" placeholder="${channel === "whatsapp" ? "Short, like a text. One ask." : ""}"></textarea></div>`}
     <div class="actions"><span class="spacer"></span><button class="ghost" data-act="cancel">Cancel</button><button class="primary" data-act="save">Save for approval</button></div>`);
   $("[data-act=cancel]", m).onclick = closeModal;
   const ai = $("[data-act=ai]", m);

@@ -372,3 +372,14 @@ main.wide { max-width: none; }
 .quick input { flex: 1; }
 .quick select { width: auto; flex: 0 0 auto; }
 .quick select:disabled { opacity: .45; }
+
+/* LinkedIn drafts: the connection note and the message for after they accept, each in its own box */
+.li-steps { display: grid; gap: .7rem; margin-bottom: .95rem; }
+.li-step { border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface-2); padding: .7rem .9rem .45rem; transition: border-color .2s var(--ease), box-shadow .2s var(--ease), background .2s var(--ease); }
+.li-step:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); background: var(--surface); }
+.li-step .head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; margin-bottom: .3rem; }
+.li-step .step { font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.li-step .count { font-size: .72rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+.li-step .count.over { color: var(--no); font-weight: 600; }
+.li-step textarea { width: 100%; border: 0; background: transparent; padding: 0; min-height: 2.6rem; box-shadow: none; border-radius: 0; }
+.li-step textarea:hover, .li-step textarea:focus { border: 0; box-shadow: none; }
