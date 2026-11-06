@@ -1,9 +1,10 @@
-"""Import a Harvey grower batch (the review CSV from assemble_growers.py) into
-the CRM: one person per row (track growers, reach via email, phone +
-LinkedIn on file) and, for every fit person, an email draft and a LinkedIn
-draft on Today so each message can be approved and sent from the CRM.
+"""Import a Harvey outreach batch (the review CSV from assemble_growers.py)
+into the CRM: one person per row (reach via email, phone + LinkedIn on file)
+and, for every fit person, an email draft and a LinkedIn draft on Today so
+each message can be approved and sent from the CRM.
 
-Usage: .venv/bin/python scripts/import_harvey_growers.py <review.csv>
+Usage: .venv/bin/python scripts/import_harvey_growers.py <review.csv> [--track growers|engineers|labs|angels]
+Harvey's "investors" track lands on the CRM's "angels" track.
 Safe to re-run: people are matched on name + company, drafts are not duplicated.
 """
 
@@ -23,7 +24,13 @@ OPT_OUT = {
 }
 
 
-def main(path: str) -> None:
+HARVEY_TO_CRM_TRACK = {"investors": "angels"}
+
+
+def main(path: str, track: str = "growers") -> None:
+    track = HARVEY_TO_CRM_TRACK.get(track, track)
+    if track not in config.TRACKS:
+        raise SystemExit(f"unknown track {track!r}; use one of {config.TRACKS}")
     conn = db.connect()
     rows = list(csv.DictReader(open(path, encoding="utf-8")))
     made = drafts = 0
@@ -36,10 +43,11 @@ def main(path: str) -> None:
             pid = existing["id"]
         else:
             p = db.create_person(conn, {
-                "name": r["name"], "company": r["company"], "track": "growers",
+                "name": r["name"], "company": r["company"], "track": track,
                 "email": r["email"], "linkedin": r["linkedin"], "phone": r["phone"],
                 "language": r["language"] or "nl", "channel": "email" if r["email"] else "linkedin",
-                "next_step": "Approve and send first email; LinkedIn note by hand",
+                "next_step": ("Approve and send first email; LinkedIn note by hand"
+                              if r["email"] else "LinkedIn note by hand (no public email)"),
                 "next_date": db.today(),
             })
             pid = p["id"]
@@ -48,7 +56,8 @@ def main(path: str) -> None:
                                                f"Harvey draft {r['harvey_draft_id']}")
         have = {d["channel"] for d in db.get_person(conn, pid)["drafts"]}
         lang = r["language"] or "nl"
-        if r["email_body"] and "email" not in have:
+        # No address on file = no email draft on Today (it would look sendable).
+        if r["email"] and r["email_body"] and "email" not in have:
             body = r["email_body"].strip() + SIGNATURE + "\n\n" + OPT_OUT.get(lang, OPT_OUT["en"])
             db.create_draft(conn, pid, "email", subject=r["email_subject"], body=body)
             drafts += 1
@@ -60,4 +69,6 @@ def main(path: str) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    args = sys.argv[1:]
+    track = args[args.index("--track") + 1] if "--track" in args else "growers"
+    main(args[0], track)
