@@ -316,9 +316,25 @@ def list_drafts(conn, status: str = "pending") -> list[dict]:
         "WHERE d.status = ? ORDER BY d.created_at", (status,)))
 
 
+LINKEDIN_NOTE_MAX = 300  # LinkedIn's limit on a connection note
+
+
+def split_linkedin(body: str) -> tuple[str, str]:
+    """A LinkedIn draft written as 'connection note, blank line, message for
+    after they accept' becomes (note, message); anything else is ('', body)."""
+    body = (body or "").strip()
+    head, _, rest = body.partition("\n\n")
+    if rest.strip() and len(head.strip()) <= LINKEDIN_NOTE_MAX:
+        return head.strip(), rest.strip()
+    return "", body
+
+
 def create_draft(conn, person_id: int, channel: str, subject: str = "", body: str = "") -> dict:
     if channel not in config.DRAFT_CHANNELS:
         raise ValueError(f"channel must be one of {', '.join(config.DRAFT_CHANNELS)}")
+    if channel == "linkedin" and not subject:
+        # The note and the message live in their own boxes: subject = note.
+        subject, body = split_linkedin(body)
     ts = now()
     cur = conn.execute(
         "INSERT INTO drafts (person_id, channel, subject, body, status, created_at, updated_at) "
@@ -352,11 +368,21 @@ def update_draft(conn, did: int, data: dict) -> dict:
         stage = "contacted" if p["stage"] == "new" else p["stage"]
         next_step, next_date = p["next_step"], p["next_date"]
         if not next_date:
-            next_step = "Follow up" if not next_step else next_step
+            # No reply by then? With a number on file the follow-up is a
+            # call, which lands on Today as "Call ..." with the number.
+            phone = (p["phone"] or "").strip()
+            if not next_step:
+                next_step = f"No reply? Call {phone}" if phone else "Follow up"
             next_date = (date.today() + timedelta(days=config.FOLLOW_UP_DAYS)).isoformat()
         conn.execute(
             "UPDATE people SET stage = ?, next_step = ?, next_date = ?, updated_at = ? WHERE id = ?",
             (stage, next_step, next_date, now(), d["person_id"]))
+        if d["channel"] == "linkedin" and subject.strip() and body.strip():
+            # The connection note went out. The message for after they
+            # accept becomes its own draft, so it waits on Today until then.
+            conn.execute(
+                "INSERT INTO drafts (person_id, channel, subject, body, status, created_at, updated_at) "
+                "VALUES (?,?,?,?,'pending',?,?)", (d["person_id"], "linkedin", "", body.strip(), now(), now()))
     conn.commit()
     return one(conn.execute("SELECT * FROM drafts WHERE id = ?", (did,)))
 

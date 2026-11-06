@@ -78,6 +78,27 @@ def test_draft_sent_books_follow_up(client):
     assert client.post(f"/api/people/{p['id']}/drafts", json={"channel": "fax"}).status_code == 400
 
 
+def test_draft_sent_with_phone_books_a_call(client):
+    p = person(client, email="bo@example.com", phone="0174 123 456")
+    d = client.post(f"/api/people/{p['id']}/drafts", json={"channel": "email", "subject": "Hi", "body": "Hello"}).json()
+    client.patch(f"/api/drafts/{d['id']}", json={"status": "sent"})
+    p2 = client.get(f"/api/people/{p['id']}").json()
+    assert p2["next_step"] == "No reply? Call 0174 123 456"
+    assert p2["next_date"] == (date.today() + timedelta(days=config.FOLLOW_UP_DAYS)).isoformat()
+
+
+def test_linkedin_draft_keeps_note_and_message_apart(client):
+    p = person(client, linkedin="https://www.linkedin.com/in/bo")
+    d = client.post(f"/api/people/{p['id']}/drafts", json={"channel": "linkedin", "body": "Hi Bo, nice to connect.\n\nThanks for connecting. One question for you."}).json()
+    assert d["subject"] == "Hi Bo, nice to connect." and d["body"] == "Thanks for connecting. One question for you."
+    client.patch(f"/api/drafts/{d['id']}", json={"status": "sent"})
+    # The note went out; the message waits on Today as its own draft.
+    left = client.get("/api/today").json()["drafts"]
+    assert len(left) == 1 and left[0]["subject"] == "" and left[0]["body"] == "Thanks for connecting. One question for you."
+    client.patch(f"/api/drafts/{left[0]['id']}", json={"status": "sent"})
+    assert client.get("/api/today").json()["drafts"] == []
+
+
 def test_hypothesis_dots_and_auto_status(client):
     h = client.post("/api/hypotheses", json={"claim": "Growers rent, not buy", "track": "growers"}).json()
     assert h["status"] == "untested"

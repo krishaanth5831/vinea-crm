@@ -27,6 +27,17 @@ OPT_OUT = {
 HARVEY_TO_CRM_TRACK = {"investors": "angels"}
 
 
+def next_step(r) -> str:
+    """What Today should say, given which contact details are actually on file."""
+    if r["email"] and r["linkedin"]:
+        return "Approve and send first email; LinkedIn note by hand"
+    if r["email"]:
+        return "Approve and send first email (no LinkedIn profile on file)"
+    if r["linkedin"]:
+        return "LinkedIn note by hand (no public email)"
+    return "Find a public address or LinkedIn profile first"
+
+
 def main(path: str, track: str = "growers") -> None:
     track = HARVEY_TO_CRM_TRACK.get(track, track)
     if track not in config.TRACKS:
@@ -46,8 +57,7 @@ def main(path: str, track: str = "growers") -> None:
                 "name": r["name"], "company": r["company"], "track": track,
                 "email": r["email"], "linkedin": r["linkedin"], "phone": r["phone"],
                 "language": r["language"] or "nl", "channel": "email" if r["email"] else "linkedin",
-                "next_step": ("Approve and send first email; LinkedIn note by hand"
-                              if r["email"] else "LinkedIn note by hand (no public email)"),
+                "next_step": next_step(r),
                 "next_date": db.today(),
             })
             pid = p["id"]
@@ -61,9 +71,11 @@ def main(path: str, track: str = "growers") -> None:
             body = r["email_body"].strip() + SIGNATURE + "\n\n" + OPT_OUT.get(lang, OPT_OUT["en"])
             db.create_draft(conn, pid, "email", subject=r["email_subject"], body=body)
             drafts += 1
-        if r["linkedin_message"] and "linkedin" not in have:
-            body = r["linkedin_note"].strip() + "\n\n" + r["linkedin_message"].strip()
-            db.create_draft(conn, pid, "linkedin", body=body)
+        # Same for LinkedIn: no profile URL on file = no LinkedIn draft.
+        if r["linkedin"] and r["linkedin_message"] and "linkedin" not in have:
+            # Note and message in their own boxes (subject = connection note).
+            db.create_draft(conn, pid, "linkedin", subject=r["linkedin_note"].strip(),
+                            body=r["linkedin_message"].strip())
             drafts += 1
     print(f"CRM: {made} people added, {drafts} drafts on Today ({config.DB_PATH})")
 
