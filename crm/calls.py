@@ -169,6 +169,7 @@ def draft(person: dict, channel: str, about: str = "") -> dict:
         "email": "short email",
         "linkedin": "LinkedIn message (a connection note under 280 characters, "
                     "then a blank line, then the first message to send once connected)",
+        "whatsapp": "WhatsApp message (short, conversational, one ask)",
     }[channel]
     prompt = DRAFT_PROMPT.format(
         rules=config.DRAFT_RULES.strip(), brief=config.TRACK_BRIEFS[person["track"]].strip(),

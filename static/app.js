@@ -39,8 +39,23 @@ const ICONS = {
   sprout: '<path d="M12 22V10"/><path d="M12 10C12 6 9 4 4 4c0 5 3 8 8 8z"/><path d="M12 14c0-4 3-6 8-6 0 5-3 8-8 8z"/>',
   seed: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
   bulb: '<path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/>',
+  video: '<rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3z"/>',
+  person: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  note: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/>',
 };
 const icon = (n) => `<svg class="i" viewBox="0 0 24 24">${ICONS[n] || ""}</svg>`;
+// Channel = the platform a touch went through. One icon each, used everywhere.
+const CH_ICON = { email: "mail", linkedin: "link", whatsapp: "chat", phone: "phone", video: "video", "in person": "person" };
+const chIcon = (c) => icon(CH_ICON[c] || "note");
+const chChip = (c, cls = "") => c ? `<span class="chip ch ${cls}">${chIcon(c)} ${esc(c)}</span>` : "";
+const channelOpts = (cur, list) => options(list || state.meta.channels, cur);
+// When the kind of touch changes, the channel select jumps to that kind's usual channel.
+const linkKindChannel = (kindSel, chSel, fallback = "") => {
+  const apply = () => { const note = kindSel.value === "note"; chSel.value = note ? "" : (state.meta.default_channel[kindSel.value] || fallback || ""); chSel.disabled = note; };
+  kindSel.addEventListener("change", apply); apply();
+};
+const waLink = (phone, text) => `https://wa.me/${String(phone || "").replace(/[^\d]/g, "")}?text=${encodeURIComponent(text)}`;
 const hue = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
 const initials = (name) => name.trim().split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
 const avatar = (p, cls = "") => `<span class="avatar ${cls}" style="--h:${hue(p.name)}">${esc(initials(p.name || "?"))}</span>`;
@@ -77,7 +92,8 @@ async function refreshPulse() {
   if (!p) return;
   const pct = Math.min(100, Math.round(100 * p.touches / p.target));
   $("#pulse").innerHTML = `<span class="ring" style="--p:${pct}"></span><span><b>${p.touches}</b> / ${p.target} this week</span>`;
-  $("#pulse").title = `${p.touches} messages and calls in the last 7 days · ${p.calls} calls · ${p.people} people in play`;
+  const by = (p.by_channel || []).filter((c) => c.channel).map((c) => `${c.channel} ${c.c}`).join(" · ");
+  $("#pulse").title = `${p.touches} messages and calls in the last 7 days · ${p.calls} calls · ${p.people} people in play${by ? "\nBy platform: " + by : ""}`;
 }
 
 // ---------------------------------------------------------------- nav ----
@@ -126,23 +142,27 @@ async function renderToday() {
 
 function draftItem(x, i) {
   const open = state.openDraft === x.id;
-  const to = x.channel === "email" ? (x.to_email || "no email on file") : (x.to_linkedin ? "LinkedIn" : "no LinkedIn on file");
+  const to = x.channel === "email" ? (x.to_email || "no email on file")
+    : x.channel === "whatsapp" ? (x.to_phone || "no phone on file")
+    : (x.to_linkedin ? "LinkedIn" : "no LinkedIn on file");
   const body = open ? `<div class="expand">
       ${x.channel === "email" ? `<div class="field"><label>Subject</label><input data-f="subject" value="${esc(x.subject)}"></div>` : ""}
       <div class="field"><label>Message</label><textarea data-f="body" rows="8">${esc(x.body)}</textarea></div>
       <div class="actions">
         ${x.channel === "email"
           ? `<button class="primary" data-act="open-mail" ${x.to_email ? "" : "disabled"}>${icon("mail")} Open in mail</button>`
+          : x.channel === "whatsapp"
+          ? `<button class="primary" data-act="open-whatsapp" ${x.to_phone ? "" : "disabled"}>${icon("chat")} Open in WhatsApp</button>`
           : `<button class="primary" data-act="open-linkedin">${icon("link")} Copy + open LinkedIn</button>`}
         <button data-act="copy">Copy</button>
         <span class="spacer"></span>
         <button data-act="sent">${icon("check")} Mark sent</button>
         <button class="ghost" data-act="skip">Skip</button>
       </div></div>` : "";
-  return `<div class="item ${open ? "open" : ""}" data-draft="${x.id}" data-email="${esc(x.to_email)}" data-linkedin="${esc(x.to_linkedin)}" data-channel="${x.channel}" style="--i:${i}">
+  return `<div class="item ${open ? "open" : ""}" data-draft="${x.id}" data-email="${esc(x.to_email)}" data-linkedin="${esc(x.to_linkedin)}" data-phone="${esc(x.to_phone)}" data-channel="${x.channel}" style="--i:${i}">
     ${avatar(x)}
     <div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub one">${esc(x.subject || x.body.slice(0, 110))}</div></div>
-    <div class="meta"><span class="chip accent">${icon(x.channel === "email" ? "mail" : "link")} ${x.channel}</span><span class="sub small">${esc(to)}</span></div>${body}</div>`;
+    <div class="meta">${chChip(x.channel, "accent")}<span class="sub small">${esc(to)}</span></div>${body}</div>`;
 }
 
 function dueItem(x, i) {
@@ -151,6 +171,7 @@ function dueItem(x, i) {
       <div class="field"><label>What happened?</label><textarea data-f="note" rows="3" placeholder="Short note for the timeline (optional)"></textarea></div>
       <div class="row">
         <div class="field"><label>Logged as</label><select data-f="kind">${options(state.meta.touch_kinds, "note")}</select></div>
+        <div class="field"><label>Via</label><select data-f="channel"><option value="">—</option>${channelOpts("")}</select></div>
         <div class="field"><label>Next step</label><input data-f="next_step" placeholder="e.g. Call to set a visit"></div>
         <div class="field"><label>When</label><input type="date" data-f="next_date"></div>
       </div>
@@ -158,17 +179,18 @@ function dueItem(x, i) {
         <span class="snooze"><span class="muted small">Snooze</span><button class="ghost" data-snooze="1">+1 day</button><button class="ghost" data-snooze="3">+3 days</button><button class="ghost" data-snooze="7">+1 week</button></span>
         <span class="spacer"></span><button class="ghost" data-open-person="${x.id}">Open person ${icon("arrow")}</button></div>
     </div>` : "";
-  return `<div class="item ${open ? "open" : ""}" data-due="${x.id}" style="--i:${i}">
+  return `<div class="item ${open ? "open" : ""}" data-due="${x.id}" data-channel="${esc(x.channel || "")}" style="--i:${i}">
     <button class="tick" title="Done">${icon("check")}</button>
     <div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub one">${esc(x.next_step || "Follow up")}</div></div>
-    <div class="meta"><span class="chip">${esc(x.track)}</span><span class="chip ${isOverdue(x.next_date) ? "overdue" : "date"}">${icon("cal")} ${isOverdue(x.next_date) ? "overdue · " : ""}${fmtDate(x.next_date)}</span></div>${body}</div>`;
+    <div class="meta">${chChip(x.channel)}<span class="chip">${esc(x.track)}</span><span class="chip ${isOverdue(x.next_date) ? "overdue" : "date"}">${icon("cal")} ${isOverdue(x.next_date) ? "overdue · " : ""}${fmtDate(x.next_date)}</span></div>${body}</div>`;
 }
 
 async function renderReview() {
   const w = await get("/api/week");
   const n = (k) => (w.touches.find((t) => t.kind === k) || { c: 0 }).c;
   const callsN = n("call") + n("visit") + n("meeting");
-  const sentN = n("email") + n("linkedin");
+  const sentN = n("message");
+  const byPlatform = (w.channels || []).filter((c) => c.channel).map((c) => `<span class="chip ch">${chIcon(c.channel)} ${esc(c.channel)} <b>${c.c}</b></span>`).join("");
   const byTrack = {};
   w.by_track.forEach((r) => { byTrack[r.track] = (byTrack[r.track] || 0) + r.c; });
   const yes = w.evidence.filter((e) => e.verdict === "yes").length, no = w.evidence.length - yes;
@@ -181,6 +203,7 @@ async function renderReview() {
       <div class="stat"><b>${yes} ✓ · ${no} ✗</b><span>hypothesis evidence</span></div>
       <div class="stat"><b>${w.insights.length}</b><span>insights to export</span></div>
     </div>
+    ${byPlatform ? `<p class="small muted">By platform</p><div class="chips">${byPlatform}</div>` : ""}
     ${w.calls.length ? `<p class="small muted">Calls</p><ul>${w.calls.map((c) => `<li><a href="#" data-open-person="${c.person_id}">${esc(c.name)}</a> <span class="muted">${esc(c.company)}</span> — ${esc(c.body.slice(0, 120))}</li>`).join("")}</ul>` : ""}
     ${w.evidence.length ? `<p class="small muted">Evidence</p><ul>${w.evidence.map((e) => `<li><b>${e.verdict === "yes" ? "✓" : "✗"}</b> ${esc(e.claim)} <span class="muted">— ${esc(e.person_name || "")}</span></li>`).join("")}</ul>` : ""}
     ${w.insights.length ? `<p class="small muted">Insights waiting for the vault</p><ul>${w.insights.map((i) => `<li><span class="chip">${i.module}</span> ${esc(i.text)}</li>`).join("")}</ul>` : ""}
@@ -216,10 +239,11 @@ async function renderPeople() {
 }
 function pcard(p, i) {
   const od = isOverdue(p.next_date);
+  const via = p.channel || p.last_channel;
   return `<div class="pcard" draggable="true" data-person="${p.id}" style="--i:${i}">
     ${avatar(p)}
     <div class="name">${esc(p.name)}</div>
-    <div class="company">${esc(p.company || "—")}</div>
+    <div class="company">${esc(p.company || "—")}${via ? `<span class="via" title="${p.channel ? "Reach via" : "Last touch via"} ${esc(via)}">${chIcon(via)}</span>` : ""}</div>
     ${p.next_step || p.next_date ? `<div class="next ${od ? "overdue" : ""}">${icon("cal")}${p.next_date ? `<b>${fmtDate(p.next_date)}</b>` : ""}<span>${esc(p.next_step)}</span></div>` : ""}
   </div>`;
 }
@@ -304,6 +328,9 @@ function wire(main) {
         await api("PATCH", `/api/drafts/${id}`, v);
         await navigator.clipboard.writeText(v.body); toast("Copied. Paste it on LinkedIn.");
         if (it.dataset.linkedin) window.open(it.dataset.linkedin, "_blank");
+      } else if (act === "open-whatsapp") {
+        await api("PATCH", `/api/drafts/${id}`, v);
+        window.open(waLink(it.dataset.phone, v.body), "_blank");
       } else if (act === "sent") save("sent");
       else if (act === "skip") save("skipped");
     }));
@@ -316,7 +343,7 @@ function wire(main) {
     $$("[data-act]", it).forEach((b) => b.onclick = guard(async (e) => {
       e.stopPropagation();
       if (b.dataset.act === "done-save") {
-        await api("POST", `/api/people/${id}/done`, { note: $("[data-f=note]", it).value, kind: $("[data-f=kind]", it).value, next_step: $("[data-f=next_step]", it).value, next_date: $("[data-f=next_date]", it).value });
+        await api("POST", `/api/people/${id}/done`, { note: $("[data-f=note]", it).value, kind: $("[data-f=kind]", it).value, channel: $("[data-f=channel]", it).value, next_step: $("[data-f=next_step]", it).value, next_date: $("[data-f=next_date]", it).value });
         it.classList.add("gone"); state.openDue = null; toast("Done"); setTimeout(render, 350);
       } else if (b.dataset.act === "log-call-here") { state.openDue = null; openCallModal(id); }
     }));
@@ -326,7 +353,7 @@ function wire(main) {
       await api("PATCH", `/api/people/${id}`, { next_date: addDays(days) });
       it.classList.add("gone"); state.openDue = null; toast(`Snoozed to ${fmtDate(addDays(days))}`); setTimeout(render, 350);
     }));
-    if (state.openDue === id) { $(".tick", it).classList.add("on"); $("[data-f=note]", it).focus(); }
+    if (state.openDue === id) { $(".tick", it).classList.add("on"); linkKindChannel($("[data-f=kind]", it), $("[data-f=channel]", it), it.dataset.channel); $("[data-f=note]", it).focus(); }
   });
   const ex = $("[data-act=export]", main);
   if (ex) ex.onclick = guard(async () => {
@@ -402,13 +429,14 @@ async function openDrawer(id) {
   if (!p) return toast("Person not found", true);
   state.drawerId = id;
   const dr = $("#drawer");
-  const touches = p.touches.map((t) => `<div class="touch"><span class="when">${fmtWhen(t.at)}</span><div><span class="chip">${t.kind}</span> <span class="body">${esc(t.body)}</span>${t.transcript ? `<details><summary>transcript</summary><pre>${esc(t.transcript)}</pre></details>` : ""}</div><button class="link" data-del-touch="${t.id}">×</button></div>`).join("");
+  const touches = p.touches.map((t) => `<div class="touch"><span class="when">${fmtWhen(t.at)}</span><div><span class="chip">${t.kind}</span>${chChip(t.channel)} <span class="body">${esc(t.body)}</span>${t.transcript ? `<details><summary>transcript</summary><pre>${esc(t.transcript)}</pre></details>` : ""}</div><button class="link" data-del-touch="${t.id}">×</button></div>`).join("");
   const ev = p.evidence.map((e) => `<div class="ev"><span class="v ${e.verdict}">${e.verdict === "yes" ? "✓" : "✗"}</span><div>${esc(e.claim)}${e.quote ? `<br><q>${esc(e.quote)}</q>` : ""}</div><span></span></div>`).join("");
   dr.innerHTML = `
     <div class="head">${avatar(p)}<div style="flex:1"><input class="big" data-f="name" value="${esc(p.name)}" placeholder="Name"><input class="co" data-f="company" value="${esc(p.company)}" placeholder="Company"></div><button class="icon close" data-act="close">×</button></div>
     <div class="row">
       <div class="field"><label>Track</label><select data-f="track">${trackOpts(p.track)}</select></div>
       <div class="field"><label>Stage</label><select data-f="stage">${stageOpts(p.track, p.stage)}</select></div>
+      <div class="field"><label>Reach via</label><select data-f="channel"><option value="">not set</option>${channelOpts(p.channel)}</select></div>
     </div>
     <div class="row">
       <div class="field" style="flex:2"><label>Next step</label><input data-f="next_step" value="${esc(p.next_step)}" placeholder="What happens next"></div>
@@ -424,12 +452,13 @@ async function openDrawer(id) {
       <button class="primary" data-act="call">${icon("phone")} Log a call</button>
       <button data-act="draft-email">${icon("mail")} Draft email</button>
       <button data-act="draft-linkedin">${icon("link")} Draft LinkedIn</button>
+      <button data-act="draft-whatsapp">${icon("chat")} Draft WhatsApp</button>
       <button data-act="referral">Who else? +</button>
     </div>
     <div data-ref-box style="display:none;margin-top:.8rem" class="card"><label>They suggested talking to…</label><div class="row"><input data-f="ref_name" placeholder="Name"><input data-f="ref_company" placeholder="Company"><button class="primary" data-act="ref-save" style="flex:0">Add</button></div></div>
     <div class="timeline">
       <h2 style="margin-top:1.6rem">Timeline <em>${p.touches.length}</em></h2>
-      <div class="quick"><select data-f="qkind">${options(state.meta.touch_kinds, "note")}</select><input data-f="qnote" placeholder="Quick note… Enter to add"></div>
+      <div class="quick"><select data-f="qkind">${options(state.meta.touch_kinds, "note")}</select><select data-f="qchannel"><option value="">—</option>${channelOpts("")}</select><input data-f="qnote" placeholder="Quick note… Enter to add"></div>
       ${touches || `<p class="muted small">Nothing yet.</p>`}
       ${ev ? `<h2>Hypotheses</h2>${ev}` : ""}
     </div>
@@ -437,7 +466,7 @@ async function openDrawer(id) {
   dr.classList.add("show"); $("#drawer-scrim").classList.add("show");
   const close = () => { dr.classList.remove("show"); $("#drawer-scrim").classList.remove("show"); state.drawerId = null; render(); };
   $("[data-act=close]", dr).onclick = close; $("#drawer-scrim").onclick = close;
-  const fields = ["name", "company", "track", "stage", "next_step", "next_date", "email", "linkedin", "phone", "language"];
+  const fields = ["name", "company", "track", "stage", "next_step", "next_date", "email", "linkedin", "phone", "language", "channel"];
   fields.forEach((f) => { const el = $(`[data-f=${f}]`, dr); el.onchange = guard(async () => {
     const data = { [f]: el.value };
     if (f === "track") data.stage = "new";
@@ -448,14 +477,16 @@ async function openDrawer(id) {
   $("[data-f=qnote]", dr).onkeydown = guard(async (e) => {
     if (e.key !== "Enter") return;
     const body = e.target.value.trim(); if (!body) return;
-    await api("POST", `/api/people/${id}/touches`, { kind: $("[data-f=qkind]", dr).value, body });
+    await api("POST", `/api/people/${id}/touches`, { kind: $("[data-f=qkind]", dr).value, channel: $("[data-f=qchannel]", dr).value, body });
     toast("Added to timeline"); openDrawer(id);
   });
+  linkKindChannel($("[data-f=qkind]", dr), $("[data-f=qchannel]", dr), p.channel);
   $$("[data-open-person]", dr).forEach((a) => a.onclick = (e) => { e.preventDefault(); openDrawer(+a.dataset.openPerson); });
   $$("[data-del-touch]", dr).forEach((b) => b.onclick = guard(async () => { await api("DELETE", `/api/touches/${b.dataset.delTouch}`); openDrawer(id); }));
   $("[data-act=call]", dr).onclick = () => openCallModal(id);
   $("[data-act=draft-email]", dr).onclick = () => openDraftModal(p, "email");
   $("[data-act=draft-linkedin]", dr).onclick = () => openDraftModal(p, "linkedin");
+  $("[data-act=draft-whatsapp]", dr).onclick = () => openDraftModal(p, "whatsapp");
   $("[data-act=referral]", dr).onclick = () => { const b = $("[data-ref-box]", dr); b.style.display = b.style.display ? "" : "none"; $("[data-f=ref_name]", dr).focus(); };
   $("[data-act=ref-save]", dr).onclick = guard(async () => {
     const name = $("[data-f=ref_name]", dr).value.trim(); if (!name) return;
@@ -480,6 +511,7 @@ function openPersonModal(track) {
     <div class="row"><div class="field"><label>Name</label><input data-f="name" autofocus></div><div class="field"><label>Company</label><input data-f="company"></div></div>
     <div class="row"><div class="field"><label>Track</label><select data-f="track">${trackOpts(track || state.track)}</select></div><div class="field"><label>Language</label><select data-f="language">${langOpts("en")}</select></div></div>
     <div class="row"><div class="field"><label>Email</label><input data-f="email"></div><div class="field"><label>LinkedIn</label><input data-f="linkedin"></div></div>
+    <div class="row"><div class="field"><label>Phone</label><input data-f="phone" placeholder="+31 …"></div><div class="field"><label>Reach via</label><select data-f="channel"><option value="">guess from contact details</option>${channelOpts("")}</select></div></div>
     <div class="row"><div class="field" style="flex:2"><label>Next step</label><input data-f="next_step" placeholder="e.g. Send first email"></div><div class="field"><label>When</label><input type="date" data-f="next_date" value="${state.meta.today}"></div></div>
     <div class="actions"><span class="spacer"></span><button class="ghost" data-act="cancel">Cancel</button><button class="primary" data-act="save">Add person</button></div>`, true);
   $("[data-f=name]", m).focus();
@@ -514,7 +546,7 @@ function openDraftModal(p, channel) {
     ${canAI ? `<div class="field"><label>Anything Claude should know about them (optional)</label><input data-f="about" placeholder="e.g. grows cherry tomatoes near Westland, posted about labour costs"></div>
     <div class="actions" style="margin-bottom:1rem"><button data-act="ai">Draft with Claude</button><span class="busy" data-busy style="display:none">Writing…</span></div>` : `<p class="muted small" style="margin-bottom:.8rem">The claude CLI is not on PATH, so write it by hand.</p>`}
     ${channel === "email" ? `<div class="field"><label>Subject</label><input data-f="subject"></div>` : ""}
-    <div class="field"><label>Message</label><textarea data-f="body" rows="9" placeholder="${channel === "linkedin" ? "Connection note first (under 280 characters), blank line, then the first message." : ""}"></textarea></div>
+    <div class="field"><label>Message</label><textarea data-f="body" rows="9" placeholder="${channel === "linkedin" ? "Connection note first (under 280 characters), blank line, then the first message." : channel === "whatsapp" ? "Short, like a text. One ask." : ""}"></textarea></div>
     <div class="actions"><span class="spacer"></span><button class="ghost" data-act="cancel">Cancel</button><button class="primary" data-act="save">Save for approval</button></div>`);
   $("[data-act=cancel]", m).onclick = closeModal;
   const ai = $("[data-act=ai]", m);
@@ -541,6 +573,7 @@ async function openCallModal(personId) {
     <div class="row">
       <div class="field" style="flex:2"><label>Who</label><input data-f="who" list="people-dl" value="${esc(person?.name || "")}" placeholder="Start typing a name"></div>
       <div class="field"><label>Kind</label><select data-f="kind">${options(["call", "visit", "meeting"], "call")}</select></div>
+      <div class="field"><label>Via</label><select data-f="channel">${channelOpts("phone", ["phone", "video", "whatsapp", "in person"])}</select></div>
     </div>
     <div class="drop" data-drop><input type="file" accept="audio/*,video/*"><span data-drop-label>${tr ? `Drop the recording here to transcribe (${tr})` : "Drop a recording here — install faster-whisper to transcribe, or paste the transcript below"}</span></div>
     <div class="field" style="margin-top:.8rem"><label>Transcript or notes</label><textarea data-f="transcript" rows="7" placeholder="Paste the transcript, or type your notes"></textarea></div>
@@ -571,6 +604,7 @@ async function openCallModal(personId) {
     $("[data-f=stage]", m).innerHTML = `<option value="">keep</option>` + (current ? stageOpts(current.track, "__") : "");
   });
   $("[data-act=cancel]", m).onclick = closeModal;
+  linkKindChannel($("[data-f=kind]", m), $("[data-f=channel]", m));
   const drop = $("[data-drop]", m), file = $("input[type=file]", drop);
   drop.onclick = () => file.click();
   drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
@@ -626,7 +660,7 @@ async function openCallModal(personId) {
     const verdicts = $$(".vrow", m).map((r) => ({ hypothesis_id: +r.dataset.hid, verdict: $(".seg .on", r).dataset.v, quote: $("[data-f=quote]", r).value })).filter((v) => v.verdict !== "skip");
     const referrals = $$("[data-referrals] .lrow", m).filter((r) => $("input[type=checkbox]", r).checked && $("[data-f=rname]", r).value.trim()).map((r) => ({ name: $("[data-f=rname]", r).value.trim(), company: $("[data-f=rcompany]", r).value.trim() }));
     const insights = $$("[data-insights] .lrow", m).filter((r) => $("input[type=checkbox]", r).checked && $("[data-f=itext]", r).value.trim()).map((r) => ({ module: $("[data-f=imodule]", r).value, text: $("[data-f=itext]", r).value.trim() }));
-    const payload = { person_id: current.id, kind: $("[data-f=kind]", m).value, transcript: $("[data-f=transcript]", m).value, audio_path,
+    const payload = { person_id: current.id, kind: $("[data-f=kind]", m).value, channel: $("[data-f=channel]", m).value, transcript: $("[data-f=transcript]", m).value, audio_path,
       summary: $("[data-f=summary]", m).value || $("[data-f=transcript]", m).value.slice(0, 200), verdicts, referrals, insights,
       next_step: $("[data-f=next_step]", m).value, next_date: $("[data-f=next_date]", m).value, stage: $("[data-f=stage]", m).value };
     const r = await api("POST", "/api/calls/confirm", payload);

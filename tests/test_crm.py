@@ -154,3 +154,61 @@ def test_transcribe_without_backend_is_503(client, monkeypatch):
     monkeypatch.setattr(calls, "transcription_backend", lambda: "")
     r = client.post("/api/calls/transcribe", files={"file": ("a.m4a", b"xx", "audio/mp4")})
     assert r.status_code == 503 and "faster-whisper" in r.json()["error"]
+
+
+def test_channels_on_touches_drafts_and_people(client):
+    # preferred channel is guessed from the first contact detail, or set outright
+    p = person(client, linkedin="https://linkedin.com/in/ali")
+    assert p["channel"] == "linkedin"
+    p2 = person(client, name="Bo", phone="+31 6 1234", channel="whatsapp")
+    assert p2["channel"] == "whatsapp"
+    assert client.post("/api/people", json={"name": "X", "channel": "fax"}).status_code == 400
+    # a touch defaults to its kind's usual channel; a note has none
+    t = client.post(f"/api/people/{p['id']}/touches", json={"kind": "call", "body": "rang"}).json()
+    assert t["channel"] == "phone"
+    t = client.post(f"/api/people/{p['id']}/touches", json={"kind": "call", "channel": "video", "body": "zoomed"}).json()
+    assert t["channel"] == "video"
+    t = client.post(f"/api/people/{p['id']}/touches", json={"kind": "note", "channel": "email", "body": "x"}).json()
+    assert t["channel"] == ""
+    assert client.post(f"/api/people/{p['id']}/touches", json={"kind": "message", "channel": "pigeon"}).status_code == 400
+    # the board knows the last channel used
+    row = [x for x in client.get("/api/people").json() if x["id"] == p["id"]][0]
+    assert row["last_channel"] == "video"
+    # a sent draft lands as a 'message' touch on its channel; whatsapp drafts carry the phone
+    d = client.post(f"/api/people/{p2['id']}/drafts", json={"channel": "whatsapp", "body": "Hoi"}).json()
+    assert client.get("/api/today").json()["drafts"][0]["to_phone"] == "+31 6 1234"
+    client.patch(f"/api/drafts/{d['id']}", json={"status": "sent"})
+    top = client.get(f"/api/people/{p2['id']}").json()["touches"][0]
+    assert (top["kind"], top["channel"]) == ("message", "whatsapp")
+    # ticking off a due item logs the channel too
+    client.post(f"/api/people/{p['id']}/done", json={"note": "met at the fair", "kind": "meeting", "channel": "in person"})
+    top = client.get(f"/api/people/{p['id']}").json()["touches"][0]
+    assert (top["kind"], top["channel"]) == ("meeting", "in person")
+    # counts by platform for the pulse and the Friday review
+    pulse = client.get("/api/pulse").json()
+    assert {c["channel"]: c["c"] for c in pulse["by_channel"]} == {"phone": 1, "video": 1, "whatsapp": 1, "in person": 1}
+    week = client.get("/api/week").json()
+    assert sum(c["c"] for c in week["channels"]) == 4
+
+
+def test_old_database_gets_channels(tmp_path):
+    """A db from before channels existed: column added, platforms recovered from the old kinds."""
+    import sqlite3
+    from crm import db
+    path = tmp_path / "old.db"
+    raw = sqlite3.connect(path)
+    raw.executescript("""
+        CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT NOT NULL, company TEXT DEFAULT '', track TEXT NOT NULL,
+            stage TEXT NOT NULL DEFAULT 'new', next_step TEXT DEFAULT '', next_date TEXT DEFAULT '', email TEXT DEFAULT '',
+            linkedin TEXT DEFAULT '', phone TEXT DEFAULT '', language TEXT DEFAULT 'en', referred_by INTEGER,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE touches (id INTEGER PRIMARY KEY, person_id INTEGER NOT NULL, kind TEXT NOT NULL, at TEXT NOT NULL,
+            body TEXT DEFAULT '', transcript TEXT DEFAULT '', audio_path TEXT DEFAULT '');
+        INSERT INTO people (id, name, track, created_at, updated_at) VALUES (1, 'Old', 'growers', 't', 't');
+        INSERT INTO touches (person_id, kind, at) VALUES (1, 'email', 't'), (1, 'linkedin', 't'), (1, 'call', 't'), (1, 'visit', 't'), (1, 'note', 't');
+    """)
+    raw.commit(); raw.close()
+    conn = db.connect(path)
+    got = [(t["kind"], t["channel"]) for t in db.get_person(conn, 1)["touches"]]
+    assert sorted(got) == sorted([("message", "email"), ("message", "linkedin"), ("call", "phone"), ("visit", "in person"), ("note", "")])
+    assert db.get_person(conn, 1)["channel"] == ""
