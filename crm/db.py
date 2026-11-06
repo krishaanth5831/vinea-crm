@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS people (
     linkedin    TEXT DEFAULT '',
     phone       TEXT DEFAULT '',
     language    TEXT DEFAULT 'en',        -- nl / en / de / fr
+    channel     TEXT DEFAULT '',          -- preferred channel: email / linkedin / whatsapp / phone / video / in person
     referred_by INTEGER REFERENCES people(id) ON DELETE SET NULL,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
@@ -36,7 +37,8 @@ CREATE TABLE IF NOT EXISTS people (
 CREATE TABLE IF NOT EXISTS touches (
     id          INTEGER PRIMARY KEY,
     person_id   INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
-    kind        TEXT NOT NULL,            -- note / email / linkedin / call / visit / meeting
+    kind        TEXT NOT NULL,            -- note / message / call / visit / meeting
+    channel     TEXT DEFAULT '',          -- email / linkedin / whatsapp / phone / video / in person ('' for notes)
     at          TEXT NOT NULL,            -- ISO datetime
     body        TEXT DEFAULT '',          -- short summary
     transcript  TEXT DEFAULT '',          -- full transcript for calls
@@ -45,7 +47,7 @@ CREATE TABLE IF NOT EXISTS touches (
 CREATE TABLE IF NOT EXISTS drafts (
     id          INTEGER PRIMARY KEY,
     person_id   INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
-    channel     TEXT NOT NULL,            -- linkedin / email
+    channel     TEXT NOT NULL,            -- email / linkedin / whatsapp
     subject     TEXT DEFAULT '',
     body        TEXT DEFAULT '',
     status      TEXT NOT NULL DEFAULT 'pending',  -- pending / sent / skipped
@@ -101,7 +103,22 @@ def connect(path=None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn) -> None:
+    """Bring a database made by an older version up to the current schema."""
+    for table in ("people", "touches"):
+        cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
+        if "channel" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN channel TEXT DEFAULT ''")
+    # Before channels existed, the platform was folded into the touch kind.
+    conn.execute("UPDATE touches SET kind = 'message', channel = 'email' WHERE kind = 'email'")
+    conn.execute("UPDATE touches SET kind = 'message', channel = 'linkedin' WHERE kind = 'linkedin'")
+    conn.execute("UPDATE touches SET channel = 'phone' WHERE kind = 'call' AND channel = ''")
+    conn.execute("UPDATE touches SET channel = 'in person' WHERE kind IN ('visit', 'meeting') AND channel = ''")
+    conn.commit()
 
 
 def rows(cur) -> list[dict]:
@@ -116,11 +133,30 @@ def one(cur) -> dict | None:
 # ---------------------------------------------------------------- people ----
 
 PERSON_FIELDS = ["name", "company", "track", "stage", "next_step", "next_date",
-                 "email", "linkedin", "phone", "language", "referred_by"]
+                 "email", "linkedin", "phone", "language", "channel", "referred_by"]
+
+
+def _check_channel(channel: str) -> str:
+    if channel and channel not in config.CHANNELS:
+        raise ValueError(f"unknown channel {channel}")
+    return channel
+
+
+def _guess_channel(vals: dict) -> str:
+    """Preferred channel when none was given: the first contact detail on file."""
+    if vals.get("email"):
+        return "email"
+    if vals.get("linkedin"):
+        return "linkedin"
+    if vals.get("phone"):
+        return "whatsapp"
+    return ""
 
 
 def list_people(conn, track: str | None = None) -> list[dict]:
-    sql = ("SELECT p.*, (SELECT count(*) FROM touches t WHERE t.person_id = p.id) AS touch_count "
+    sql = ("SELECT p.*, (SELECT count(*) FROM touches t WHERE t.person_id = p.id) AS touch_count, "
+           "(SELECT channel FROM touches t WHERE t.person_id = p.id AND t.kind != 'note' "
+           " ORDER BY t.at DESC, t.id DESC LIMIT 1) AS last_channel "
            "FROM people p")
     args = []
     if track:
@@ -168,6 +204,7 @@ def create_person(conn, data: dict) -> dict:
     vals.update(name=name, track=track, stage=stage, created_at=ts, updated_at=ts)
     vals["referred_by"] = data.get("referred_by") or None
     vals["language"] = vals["language"] or "en"
+    vals["channel"] = _check_channel(vals["channel"]) or _guess_channel(vals)
     cols = ", ".join(vals)
     marks = ", ".join("?" for _ in vals)
     cur = conn.execute(f"INSERT INTO people ({cols}) VALUES ({marks})", list(vals.values()))
@@ -197,6 +234,8 @@ def update_person(conn, pid: int, data: dict) -> dict:
             v = v or None
         elif f == "name":
             v = (v or "").strip() or current["name"]
+        elif f == "channel":
+            v = _check_channel(v or "")
         else:
             v = v or ""
         sets.append(f"{f} = ?")
@@ -222,22 +261,24 @@ def search_people(conn, q: str, limit: int = 12) -> list[dict]:
 
 
 def mark_done(conn, pid: int, note: str = "", kind: str = "note",
-              next_step: str = "", next_date: str = "") -> dict:
+              next_step: str = "", next_date: str = "", channel: str | None = None) -> dict:
     """Tick off a Today item: log what happened and set the next step."""
     if note.strip():
-        add_touch(conn, pid, kind, body=note.strip())
+        add_touch(conn, pid, kind, body=note.strip(), channel=channel)
     return update_person(conn, pid, {"next_step": next_step, "next_date": next_date})
 
 
 # --------------------------------------------------------------- touches ----
 
 def add_touch(conn, person_id: int, kind: str, body: str = "", transcript: str = "",
-              at: str | None = None, audio_path: str = "") -> dict:
+              at: str | None = None, audio_path: str = "", channel: str | None = None) -> dict:
     if kind not in config.TOUCH_KINDS:
         raise ValueError(f"unknown touch kind {kind}")
+    # A note has no channel; anything else defaults to the usual one for its kind.
+    channel = "" if kind == "note" else _check_channel(channel or config.DEFAULT_CHANNEL[kind])
     cur = conn.execute(
-        "INSERT INTO touches (person_id, kind, at, body, transcript, audio_path) VALUES (?,?,?,?,?,?)",
-        (person_id, kind, at or now(), body, transcript, audio_path))
+        "INSERT INTO touches (person_id, kind, channel, at, body, transcript, audio_path) VALUES (?,?,?,?,?,?,?)",
+        (person_id, kind, channel, at or now(), body, transcript, audio_path))
     conn.execute("UPDATE people SET updated_at = ? WHERE id = ?", (now(), person_id))
     conn.commit()
     return one(conn.execute("SELECT * FROM touches WHERE id = ?", (cur.lastrowid,)))
@@ -253,14 +294,14 @@ def delete_touch(conn, tid: int) -> None:
 def list_drafts(conn, status: str = "pending") -> list[dict]:
     return rows(conn.execute(
         "SELECT d.*, p.name, p.company, p.track, p.email AS to_email, "
-        "p.linkedin AS to_linkedin, p.language "
+        "p.linkedin AS to_linkedin, p.phone AS to_phone, p.language "
         "FROM drafts d JOIN people p ON p.id = d.person_id "
         "WHERE d.status = ? ORDER BY d.created_at", (status,)))
 
 
 def create_draft(conn, person_id: int, channel: str, subject: str = "", body: str = "") -> dict:
-    if channel not in ("email", "linkedin"):
-        raise ValueError("channel must be email or linkedin")
+    if channel not in config.DRAFT_CHANNELS:
+        raise ValueError(f"channel must be one of {', '.join(config.DRAFT_CHANNELS)}")
     ts = now()
     cur = conn.execute(
         "INSERT INTO drafts (person_id, channel, subject, body, status, created_at, updated_at) "
@@ -288,8 +329,8 @@ def update_draft(conn, did: int, data: dict) -> dict:
         subject = data.get("subject", d["subject"])
         summary = (subject or body[:80]).strip()
         conn.execute(
-            "INSERT INTO touches (person_id, kind, at, body) VALUES (?,?,?,?)",
-            (d["person_id"], d["channel"], now(), f"Sent: {summary}"))
+            "INSERT INTO touches (person_id, kind, channel, at, body) VALUES (?,?,?,?,?)",
+            (d["person_id"], "message", data.get("channel", d["channel"]), now(), f"Sent: {summary}"))
         p = one(conn.execute("SELECT * FROM people WHERE id = ?", (d["person_id"],)))
         stage = "contacted" if p["stage"] == "new" else p["stage"]
         next_step, next_date = p["next_step"], p["next_date"]
@@ -447,11 +488,11 @@ def today_items(conn) -> dict:
     """Everything that belongs on the Today screen."""
     t = today()
     due = rows(conn.execute(
-        "SELECT id, name, company, track, stage, next_step, next_date FROM people "
+        "SELECT id, name, company, track, stage, channel, next_step, next_date FROM people "
         "WHERE next_date != '' AND next_date <= ? AND stage != 'closed' "
         "ORDER BY next_date, name", (t,)))
     upcoming = rows(conn.execute(
-        "SELECT id, name, company, track, stage, next_step, next_date FROM people "
+        "SELECT id, name, company, track, stage, channel, next_step, next_date FROM people "
         "WHERE next_date > ? AND stage != 'closed' ORDER BY next_date, name LIMIT 8", (t,)))
     return {"date": t, "due": due, "upcoming": upcoming, "drafts": list_drafts(conn, "pending")}
 
@@ -464,7 +505,11 @@ def pulse(conn) -> dict:
     calls = one(conn.execute(
         "SELECT count(*) c FROM touches WHERE at >= ? AND kind IN ('call','visit','meeting')", (since,)))["c"]
     people = one(conn.execute("SELECT count(*) c FROM people WHERE stage != 'closed'"))["c"]
-    return {"touches": touches, "calls": calls, "people": people, "target": config.WEEKLY_TOUCH_TARGET}
+    by_channel = rows(conn.execute(
+        "SELECT channel, count(*) c FROM touches WHERE at >= ? AND kind != 'note' "
+        "GROUP BY channel ORDER BY c DESC", (since,)))
+    return {"touches": touches, "calls": calls, "people": people,
+            "target": config.WEEKLY_TOUCH_TARGET, "by_channel": by_channel}
 
 
 def week_summary(conn) -> dict:
@@ -472,6 +517,9 @@ def week_summary(conn) -> dict:
     since = (datetime.now() - timedelta(days=7)).replace(microsecond=0).isoformat(sep=" ")
     touches = rows(conn.execute(
         "SELECT kind, count(*) c FROM touches WHERE at >= ? GROUP BY kind ORDER BY c DESC", (since,)))
+    channels = rows(conn.execute(
+        "SELECT channel, count(*) c FROM touches WHERE at >= ? AND kind != 'note' "
+        "GROUP BY channel ORDER BY c DESC", (since,)))
     calls = rows(conn.execute(
         "SELECT t.id, t.at, t.body, p.id AS person_id, p.name, p.company, p.track "
         "FROM touches t JOIN people p ON p.id = t.person_id "
@@ -486,6 +534,6 @@ def week_summary(conn) -> dict:
         "WHERE e.created_at >= ? ORDER BY h.id, e.created_at", (since,)))
     by_track = rows(conn.execute(
         "SELECT track, stage, count(*) c FROM people GROUP BY track, stage"))
-    return {"since": since[:10], "touches": touches, "calls": calls, "moved": moved,
+    return {"since": since[:10], "touches": touches, "channels": channels, "calls": calls, "moved": moved,
             "evidence": evidence, "by_track": by_track,
             "insights": list_insights(conn, unexported_only=True)}

@@ -7,6 +7,7 @@ browser, nothing leaves the laptop.
 ```
 python3 crm.py          # starts http://127.0.0.1:5566 and opens it
 python3 crm.py --no-open
+CRM_PORT=5567 CRM_DB=/tmp/x.db python3 crm.py   # a second copy on another port / database
 ```
 
 Needs Python 3.11+ with `fastapi`, `uvicorn` and `python-multipart` (already on
@@ -24,7 +25,16 @@ the vault.
 
 **People** — a board per track (growers, engineers, labs, angels), one column per
 stage, drag a card to move it. A card opens a drawer: name, company, track,
-stage, next step and date, contact details, referrals, timeline.
+stage, *reach via* (the platform you use with them), next step and date,
+contact details, referrals, timeline.
+
+**Channels** — every touch on a timeline says what happened (note, message,
+call, visit, meeting) and where (email, LinkedIn, WhatsApp, phone, video, in
+person). Drafts are written for email, LinkedIn or WhatsApp and land on the
+timeline on that channel when marked sent. Each person has a preferred
+channel, guessed from the first contact detail if you do not set it; the board
+card shows it as a small icon (or the channel of the last touch). The top-bar
+ring and the Friday review break the week down by platform.
 
 **Hypotheses** — one card per guess. Dots fill green as calls confirm it and red
 as they contradict it; past five one-sided calls the status flips to *holding*
@@ -43,7 +53,8 @@ to, module insights and the next step. Nothing is written until you press
 track briefs in `crm/config.py` carry the rules: no numbers, solo founder,
 growers never hear the data line, non-Dutch growers get a video call only) or
 are written by hand. Sending is still yours: *Open in mail* hands the text to
-your mail client, *Copy + open LinkedIn* puts it on the clipboard.
+your mail client, *Copy + open LinkedIn* puts it on the clipboard, *Open in
+WhatsApp* opens a wa.me link with the text filled in.
 
 ## Keys
 

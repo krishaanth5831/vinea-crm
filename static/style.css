@@ -129,6 +129,9 @@ label { display: block; font-size: .76rem; color: var(--muted); margin-bottom: .
 .chip.no { background: var(--no-soft); color: var(--no); }
 .chip.overdue { background: var(--no-soft); color: var(--no); text-transform: none; letter-spacing: 0; font-size: .74rem; }
 .chip.date { text-transform: none; letter-spacing: 0; font-size: .74rem; }
+.chip.ch { text-transform: none; letter-spacing: 0; }
+.chip.ch b { font-weight: 700; margin-left: .1rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .2rem 0 .9rem; }
 
 /* ---- top bar ---- */
 .top {
@@ -221,7 +224,8 @@ main.wide { max-width: none; }
 .pcard.dragging { opacity: .5; transform: scale(.97) rotate(1.5deg); cursor: grabbing; box-shadow: var(--shadow-3); }
 .pcard .avatar { grid-row: span 2; }
 .pcard .name { font-weight: 600; letter-spacing: -.005em; line-height: 1.25; }
-.pcard .company { color: var(--muted); font-size: .85rem; line-height: 1.3; }
+.pcard .company { color: var(--muted); font-size: .85rem; line-height: 1.3; display: flex; align-items: center; gap: .4rem; }
+.pcard .via { display: inline-grid; place-items: center; width: 1.3rem; height: 1.3rem; border-radius: 6px; background: var(--surface-2); color: var(--muted); font-size: .72rem; flex-shrink: 0; }
 .pcard .next { grid-column: 1 / -1; font-size: .8rem; margin-top: .45rem; padding-top: .5rem; border-top: 1px dashed var(--border); color: var(--muted); display: flex; gap: .45rem; align-items: center; }
 .pcard .next b { white-space: nowrap; font-weight: 600; color: var(--text); }
 .pcard .next.overdue b, .pcard .next.overdue svg { color: var(--no); }
@@ -357,3 +361,4 @@ main.wide { max-width: none; }
 .quick { display: flex; gap: .5rem; margin: .9rem 0 .2rem; }
 .quick input { flex: 1; }
 .quick select { width: auto; flex: 0 0 auto; }
+.quick select:disabled { opacity: .45; }

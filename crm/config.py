@@ -43,8 +43,19 @@ STAGE_LABELS = {
 # appended to that module's Progress log in the vault.
 MODULES = ["SPINE", "BLUSH", "SHEAR", "HOIST", "RAVEN"]
 
-# Kinds of touch on a person's timeline.
-TOUCH_KINDS = ["note", "email", "linkedin", "call", "visit", "meeting"]
+# Kinds of touch on a person's timeline: WHAT happened.
+TOUCH_KINDS = ["note", "message", "call", "visit", "meeting"]
+
+# Channels: WHERE it happened. Every touch except a plain note carries one, a
+# draft is written for one, and a person has a preferred one ("reach via").
+CHANNELS = ["email", "linkedin", "whatsapp", "phone", "video", "in person"]
+
+# The channel a kind of touch uses unless the user picks another.
+DEFAULT_CHANNEL = {"note": "", "message": "email", "call": "phone",
+                   "visit": "in person", "meeting": "in person"}
+
+# Channels you can write a draft for (the ones that carry text).
+DRAFT_CHANNELS = ["email", "linkedin", "whatsapp"]
 
 HYPOTHESIS_STATUSES = ["untested", "holding", "disproved", "revised"]
 
@@ -63,8 +74,8 @@ VAULT_MODULES = VAULT_VINEA / "08 Modules"
 # ring in the top bar fills towards it.
 WEEKLY_TOUCH_TARGET = 100
 
-# Port for the local web app.
-PORT = 5566
+# Port for the local web app. CRM_PORT=5567 runs a second copy beside it.
+PORT = int(os.environ.get("CRM_PORT") or 5566)
 
 # What Claude is told when it drafts a message for a track. Rules that apply
 # to every track come first; the per-track brief says what the message is for.
@@ -82,7 +93,8 @@ getvinea.nl). Rules that never bend:
 - End with just the name 'Krishaanth' on its own line. No title, no company
   line, no links.
 - LinkedIn connection notes must fit in 280 characters. LinkedIn messages and
-  emails stay under 120 words.
+  emails stay under 120 words. WhatsApp messages stay under 60 words and read
+  like a text, not a letter.
 """
 
 TRACK_BRIEFS = {

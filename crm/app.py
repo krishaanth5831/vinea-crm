@@ -42,6 +42,8 @@ def create_app(db_path=None) -> FastAPI:
         return {
             "tracks": config.TRACKS, "stages": config.STAGES, "stage_labels": config.STAGE_LABELS,
             "modules": config.MODULES, "touch_kinds": config.TOUCH_KINDS,
+            "channels": config.CHANNELS, "default_channel": config.DEFAULT_CHANNEL,
+            "draft_channels": config.DRAFT_CHANNELS,
             "hypothesis_statuses": config.HYPOTHESIS_STATUSES,
             "threshold": config.EVIDENCE_THRESHOLD, "today": db.today(),
             "is_friday": date.today().weekday() == 4,
@@ -68,7 +70,8 @@ def create_app(db_path=None) -> FastAPI:
         if not db.get_person(conn, pid):
             raise KeyError(pid)
         return db.mark_done(conn, pid, note=d.get("note", ""), kind=d.get("kind", "note"),
-                            next_step=d.get("next_step", ""), next_date=d.get("next_date", ""))
+                            next_step=d.get("next_step", ""), next_date=d.get("next_date", ""),
+                            channel=d.get("channel"))
 
     # ---------------------------------------------------------- people ----
     @app.get("/api/people")
@@ -105,7 +108,8 @@ def create_app(db_path=None) -> FastAPI:
         if not db.get_person(conn, pid):
             raise KeyError(pid)
         return db.add_touch(conn, pid, d.get("kind", "note"), body=d.get("body", ""),
-                            transcript=d.get("transcript", ""), at=d.get("at"))
+                            transcript=d.get("transcript", ""), at=d.get("at"),
+                            channel=d.get("channel"))
 
     @app.delete("/api/touches/{tid}")
     def delete_touch(tid: int):
@@ -132,6 +136,8 @@ def create_app(db_path=None) -> FastAPI:
         if not p:
             raise KeyError(pid)
         channel = d.get("channel", "email")
+        if channel not in config.DRAFT_CHANNELS:
+            raise ValueError(f"channel must be one of {', '.join(config.DRAFT_CHANNELS)}")
         out = calls.draft(p, channel, about=d.get("about", ""))
         return db.create_draft(conn, pid, channel, subject=out["subject"], body=out["body"])
 
@@ -212,7 +218,8 @@ def create_app(db_path=None) -> FastAPI:
         if not p:
             raise KeyError("person")
         touch = db.add_touch(conn, pid, d.get("kind", "call"), body=d.get("summary", ""),
-                             transcript=d.get("transcript", ""), audio_path=d.get("audio_path", ""))
+                             transcript=d.get("transcript", ""), audio_path=d.get("audio_path", ""),
+                             channel=d.get("channel"))
         for v in d.get("verdicts", []):
             db.add_evidence(conn, int(v["hypothesis_id"]), v["verdict"], quote=v.get("quote", ""),
                             person_id=pid, touch_id=touch["id"])
