@@ -55,6 +55,8 @@ const linkKindChannel = (kindSel, chSel, fallback = "") => {
   const apply = () => { const note = kindSel.value === "note"; chSel.value = note ? "" : (state.meta.default_channel[kindSel.value] || fallback || ""); chSel.disabled = note; };
   kindSel.addEventListener("change", apply); apply();
 };
+const eventLink = (title, day, details = "") => `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${(day || state.meta.today).replace(/-/g, "")}T100000/${(day || state.meta.today).replace(/-/g, "")}T103000&details=${encodeURIComponent(details)}`;
+const fmtTime = (iso) => new Date(iso.replace(" ", "T")).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 const waLink = (phone, text) => `https://wa.me/${String(phone || "").replace(/[^\d]/g, "")}?text=${encodeURIComponent(text)}`;
 const hue = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
 const initials = (name) => name.trim().split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
@@ -119,6 +121,7 @@ async function renderToday() {
   const t = await get("/api/today");
   const d = new Date(t.date + "T00:00:00");
   const friday = state.meta.is_friday ? await renderReview() : "";
+  const calendar = await renderCalendar(t.date);
   const drafts = t.drafts.map((x, i) => draftItem(x, i)).join("");
   const due = t.due.map((x, i) => dueItem(x, i + t.drafts.length)).join("");
   const up = t.upcoming.map((x, i) => `<div class="item" data-open-person="${x.id}" style="--i:${i}">${avatar(x, "sm")}<div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub one">${esc(x.next_step)}</div></div><div class="meta"><span class="chip">${esc(x.track)}</span><span class="chip date">${icon("cal")} ${fmtDate(x.next_date)}</span></div></div>`).join("");
@@ -133,11 +136,38 @@ async function renderToday() {
       <p class="sub">${parts.length ? parts.join(" · ") : "A clear day. Add a person, write a draft, or log a call."}</p>
     </div></div>
     ${friday}
+    ${calendar}
     ${none ? empty("sprout", "Nothing to tick off", "Press N to add a person, or L to log a call.") : ""}
     ${t.drafts.length ? `<h2>Drafts to approve <em>${t.drafts.length}</em></h2><div class="list" id="drafts">${drafts}</div>` : ""}
     ${t.due.length ? `<h2>Due <em>${t.due.length}</em></h2><div class="list" id="due">${due}</div>` : ""}
     ${t.upcoming.length ? `<h2>Coming up</h2><div class="list">${up}</div>` : ""}
   </div>`;
+}
+
+async function renderCalendar(today) {
+  const c = await get("/api/calendar?days=7").catch(() => null);
+  if (!c) return "";
+  if (!c.connected) return `<p class="small muted cal-connect">Meetings from your Google Calendar can show up here. <a href="#" data-act="connect-calendar">Connect calendar</a></p>`;
+  if (c.error) return `<p class="small muted cal-connect">${esc(c.error)} <a href="#" data-act="connect-calendar">Change address</a></p>`;
+  if (!c.events.length) return `<p class="small muted cal-connect">Nothing on the calendar this week. <a href="#" data-act="connect-calendar">Calendar settings</a></p>`;
+  const row = (e, i) => {
+    const day = e.start.slice(0, 10);
+    const when = e.all_day ? (day === today ? "today" : fmtDate(day)) : `${day === today ? "today" : fmtDate(day)} ${fmtTime(e.start)}`;
+    const who = e.people.map((p) => `<a href="#" class="chip accent" data-open-person="${p.id}">${esc(p.name)}</a>`).join("");
+    return `<div class="item cal ${day === today ? "today" : ""}" style="--i:${i}"><span class="cal-when">${esc(when)}</span><div><span class="title">${esc(e.summary)}</span>${e.location ? ` <span class="sub">${esc(e.location)}</span>` : ""}</div><div class="meta">${who}</div></div>`;
+  };
+  return `<h2>Calendar <em>${c.events.length}</em><a href="#" class="small muted cal-settings" data-act="connect-calendar">settings</a></h2><div class="list">${c.events.map(row).join("")}</div>`;
+}
+
+function openCalendarModal() {
+  const m = openModal(`<h2>Google Calendar</h2>
+    <p class="small muted" style="margin-bottom:.8rem">In Google Calendar: Settings → your calendar → <b>Integrate calendar</b> → copy the <b>Secret address in iCal format</b> and paste it here. The CRM reads it every few minutes; nothing is written to your calendar except through the "Add to calendar" links.</p>
+    <div class="field"><label>Secret iCal address</label><input data-f="ics" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"></div>
+    <div class="actions"><button class="link danger" data-act="disconnect">Disconnect</button><span class="spacer"></span><button class="ghost" data-act="cancel">Cancel</button><button class="primary" data-act="save">Save</button></div>`, true);
+  $("[data-f=ics]", m).focus();
+  $("[data-act=cancel]", m).onclick = closeModal;
+  $("[data-act=save]", m).onclick = guard(async () => { await api("POST", "/api/settings", { calendar_ics: $("[data-f=ics]", m).value }); state.meta.calendar = true; closeModal(); toast("Calendar connected"); render(); });
+  $("[data-act=disconnect]", m).onclick = guard(async () => { await api("POST", "/api/settings", { calendar_ics: "" }); state.meta.calendar = false; closeModal(); toast("Calendar disconnected"); render(); });
 }
 
 function draftItem(x, i) {
@@ -303,6 +333,7 @@ function wire(main) {
   $$("[data-track]", main).forEach((b) => b.onclick = () => { state.track = b.dataset.track; try { localStorage.setItem("track", state.track); } catch {} render(); });
   $$("[data-hyp-track]", main).forEach((b) => b.onclick = () => { state.hypTrack = b.dataset.hypTrack; render(); });
   $$("[data-open-person]", main).forEach((el) => el.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openDrawer(+el.dataset.openPerson); }));
+  $$("[data-act=connect-calendar]", main).forEach((a) => a.onclick = (e) => { e.preventDefault(); openCalendarModal(); });
   // drafts
   $$("[data-draft]", main).forEach((it) => {
     const id = +it.dataset.draft;
@@ -441,7 +472,9 @@ async function openDrawer(id) {
     <div class="row">
       <div class="field" style="flex:2"><label>Next step</label><input data-f="next_step" value="${esc(p.next_step)}" placeholder="What happens next"></div>
       <div class="field"><label>When</label><input type="date" data-f="next_date" value="${esc(p.next_date)}"></div>
+      <div class="field cal-add"><label>&nbsp;</label><a class="button ghost" data-act="cal-add" href="#" title="Open Google Calendar with this next step filled in">${icon("cal")} Add to calendar</a></div>
     </div>
+    <div data-cal-events></div>
     <details ${p.email || p.linkedin ? "" : "open"}><summary>Contact · ${esc(p.email || p.linkedin || p.phone || "none yet")}</summary>
       <div class="row"><div class="field"><label>Email</label><input data-f="email" value="${esc(p.email)}"></div><div class="field"><label>Language</label><select data-f="language">${langOpts(p.language)}</select></div></div>
       <div class="row"><div class="field"><label>LinkedIn</label><input data-f="linkedin" value="${esc(p.linkedin)}" placeholder="https://linkedin.com/in/…"></div><div class="field"><label>Phone</label><input data-f="phone" value="${esc(p.phone)}"></div></div>
@@ -484,6 +517,18 @@ async function openDrawer(id) {
   $$("[data-open-person]", dr).forEach((a) => a.onclick = (e) => { e.preventDefault(); openDrawer(+a.dataset.openPerson); });
   $$("[data-del-touch]", dr).forEach((b) => b.onclick = guard(async () => { await api("DELETE", `/api/touches/${b.dataset.delTouch}`); openDrawer(id); }));
   $("[data-act=call]", dr).onclick = () => openCallModal(id);
+  $("[data-act=cal-add]", dr).onclick = (e) => {
+    e.preventDefault();
+    const step = $("[data-f=next_step]", dr).value.trim() || "Call";
+    const title = `${step} · ${p.name}${p.company ? " (" + p.company + ")" : ""}`;
+    window.open(eventLink(title, $("[data-f=next_date]", dr).value, [p.email, p.phone, p.linkedin].filter(Boolean).join("\n")), "_blank");
+  };
+  if (state.meta.calendar) get("/api/calendar?days=30").then((c) => {
+    const mine = (c.events || []).filter((e) => e.people.some((x) => x.id === id));
+    const box = $("[data-cal-events]", dr);
+    if (!box || !mine.length) return;
+    box.innerHTML = `<p class="small muted cal-planned">${icon("cal")} On the calendar: ${mine.map((e) => `<b>${esc(fmtDate(e.start.slice(0, 10)))}${e.all_day ? "" : " " + fmtTime(e.start)}</b> ${esc(e.summary)}`).join(" · ")}</p>`;
+  }).catch(() => {});
   $("[data-act=draft-email]", dr).onclick = () => openDraftModal(p, "email");
   $("[data-act=draft-linkedin]", dr).onclick = () => openDraftModal(p, "linkedin");
   $("[data-act=draft-whatsapp]", dr).onclick = () => openDraftModal(p, "whatsapp");
@@ -681,6 +726,7 @@ function openPalette() {
     { t: "Today", k: "1", f: () => show("today") }, { t: "People", k: "2", f: () => show("people") }, { t: "Hypotheses", k: "3", f: () => show("hypotheses") },
     { t: "New person", k: "N", f: () => openPersonModal() }, { t: "Log a call", k: "L", f: () => openCallModal() }, { t: "New hypothesis", k: "H", f: () => openHypModal() },
     { t: "Toggle dark mode", k: "", f: toggleTheme },
+    { t: "Calendar settings", k: "", f: openCalendarModal },
   ];
   let items = [], sel = 0;
   const paint = () => { res.innerHTML = items.map((it, i) => `<div class="r ${i === sel ? "sel" : ""}" data-i="${i}">${it.av || ""}<span>${esc(it.t)}</span>${it.sub ? `<span class="muted small">${esc(it.sub)}</span>` : ""}<span class="k">${esc(it.k || "")}</span></div>`).join("") || `<div class="r muted">No matches</div>`;

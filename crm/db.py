@@ -82,6 +82,10 @@ CREATE TABLE IF NOT EXISTS insights (
     exported_at TEXT DEFAULT '',
     created_at  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT DEFAULT ''
+);
 CREATE INDEX IF NOT EXISTS idx_touches_person ON touches(person_id, at);
 CREATE INDEX IF NOT EXISTS idx_people_track ON people(track, stage);
 """
@@ -128,6 +132,19 @@ def rows(cur) -> list[dict]:
 def one(cur) -> dict | None:
     r = cur.fetchone()
     return dict(r) if r else None
+
+
+# -------------------------------------------------------------- settings ----
+
+def get_setting(conn, key: str, default: str = "") -> str:
+    r = one(conn.execute("SELECT value FROM settings WHERE key = ?", (key,)))
+    return r["value"] if r else default
+
+
+def set_setting(conn, key: str, value: str) -> None:
+    conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+    conn.commit()
 
 
 # ---------------------------------------------------------------- people ----

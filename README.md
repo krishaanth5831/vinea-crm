@@ -56,6 +56,15 @@ are written by hand. Sending is still yours: *Open in mail* hands the text to
 your mail client, *Copy + open LinkedIn* puts it on the clipboard, *Open in
 WhatsApp* opens a wa.me link with the text filled in.
 
+## Calendar
+
+Paste your Google Calendar's *secret address in iCal format* (Settings → your
+calendar → Integrate calendar) under *Calendar settings* (Ctrl+K). Today then
+shows this week's events with the people they match, a person's drawer shows
+what is planned with them, and *Add to calendar* next to a next step opens
+Google Calendar with the event prefilled. Read-only otherwise: nothing is
+written to the calendar behind your back.
+
 ## Keys
 
 `1` `2` `3` screens · `N` new person · `L` log a call · `H` new hypothesis ·
