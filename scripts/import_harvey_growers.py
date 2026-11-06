@@ -46,7 +46,8 @@ def main(path: str, track: str = "growers") -> None:
                 "name": r["name"], "company": r["company"], "track": track,
                 "email": r["email"], "linkedin": r["linkedin"], "phone": r["phone"],
                 "language": r["language"] or "nl", "channel": "email" if r["email"] else "linkedin",
-                "next_step": "Approve and send first email; LinkedIn note by hand",
+                "next_step": ("Approve and send first email; LinkedIn note by hand"
+                              if r["email"] else "LinkedIn note by hand (no public email)"),
                 "next_date": db.today(),
             })
             pid = p["id"]
@@ -55,7 +56,8 @@ def main(path: str, track: str = "growers") -> None:
                                                f"Harvey draft {r['harvey_draft_id']}")
         have = {d["channel"] for d in db.get_person(conn, pid)["drafts"]}
         lang = r["language"] or "nl"
-        if r["email_body"] and "email" not in have:
+        # No address on file = no email draft on Today (it would look sendable).
+        if r["email"] and r["email_body"] and "email" not in have:
             body = r["email_body"].strip() + SIGNATURE + "\n\n" + OPT_OUT.get(lang, OPT_OUT["en"])
             db.create_draft(conn, pid, "email", subject=r["email_subject"], body=body)
             drafts += 1
