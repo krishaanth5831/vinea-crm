@@ -374,7 +374,8 @@ main.wide { max-width: none; }
 .quick select:disabled { opacity: .45; }
 
 /* LinkedIn drafts: the connection note and the message for after they accept, each in its own box */
-.li-steps { display: grid; gap: .7rem; margin-bottom: .95rem; }
+.item > div { min-width: 0; }  /* long one-line previews truncate instead of widening the card */
+.li-steps { display: grid; gap: .7rem; margin-bottom: .95rem; min-width: 0; }
 .li-step { border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface-2); padding: .7rem .9rem .45rem; transition: border-color .2s var(--ease), box-shadow .2s var(--ease), background .2s var(--ease); }
 .li-step:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); background: var(--surface); }
 .li-step .head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; margin-bottom: .3rem; }
