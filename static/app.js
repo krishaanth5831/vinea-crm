@@ -281,8 +281,9 @@ function pcard(p, i) {
   const via = p.channel || p.last_channel;
   return `<div class="pcard" draggable="true" data-person="${p.id}" style="--i:${i}">
     ${avatar(p)}
-    <div class="name">${esc(p.name)}</div>
-    <div class="company">${esc(p.company || "—")}${via ? `<span class="via" title="${p.channel ? "Reach via" : "Last touch via"} ${esc(via)}">${chIcon(via)}</span>` : ""}</div>
+    <div class="name" title="${esc(p.name)}">${esc(p.name)}</div>
+    <div class="company" title="${esc(p.company || "")}">${esc(p.company || "—")}</div>
+    ${via ? `<span class="via" title="${p.channel ? "Reach via" : "Last touch via"} ${esc(via)}">${chIcon(via)}</span>` : ""}
     ${p.next_step || p.next_date ? `<div class="next ${od ? "overdue" : ""}">${icon("cal")}${p.next_date ? `<b>${fmtDate(p.next_date)}</b>` : ""}<span>${esc(p.next_step)}</span></div>` : ""}
   </div>`;
 }
