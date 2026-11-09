@@ -71,8 +71,9 @@ def main(path: str, track: str = "growers") -> None:
                 "email": r["email"], "linkedin": r["linkedin"], "phone": r["phone"],
                 "language": r["language"] or "nl",
                 "channel": "phone" if r["phone"] else "email" if r["email"] else "linkedin",
-                "next_step": next_step(r),
-                "next_date": db.today(),
+                # a batch CSV may set its own next step / date ('' = on the board, not on Today)
+                "next_step": r.get("next_step") or next_step(r),
+                "next_date": db.today() if r.get("next_date", "TODAY") == "TODAY" else r["next_date"],
             })
             pid = p["id"]
             known[(r["name"].lower(), r["company"].lower())] = pid
@@ -84,6 +85,10 @@ def main(path: str, track: str = "growers") -> None:
                 lines.append(f"Phone from: {r['phone_source_url']}")
             if r.get("email_source_url"):
                 lines.append(f"Email from: {r['email_source_url']}")
+            if r.get("issues"):
+                lines.append(f"Flag: {r['issues']}")
+            if r.get("notes"):
+                lines.append(f"Notes: {r['notes']}")
             if r.get("harvey_draft_id"):
                 lines.append(f"Harvey draft {r['harvey_draft_id']}")
             db.add_touch(conn, pid, "note", body="\n".join(lines))
