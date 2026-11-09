@@ -532,10 +532,13 @@ def today_items(conn, track: str | None = None) -> dict:
     (growers / engineers / labs / angels). `counts` is always over every track
     (drafts + due per track) so the filter tabs can show what each one holds."""
     t = today()
+    # Due list runs growers first, then engineers, labs, angels (config.TRACKS
+    # order, same as the filter tabs); oldest date first within a track.
+    rank = " ".join(f"WHEN '{k}' THEN {i}" for i, k in enumerate(config.TRACKS))
     due = rows(conn.execute(
         "SELECT id, name, company, track, stage, channel, next_step, next_date FROM people "
         "WHERE next_date != '' AND next_date <= ? AND stage != 'closed' "
-        "ORDER BY next_date, name", (t,)))
+        f"ORDER BY CASE track {rank} ELSE {len(config.TRACKS)} END, next_date, name", (t,)))
     drafts = list_drafts(conn, "pending")
     counts: dict[str, int] = {}
     for x in due + drafts:

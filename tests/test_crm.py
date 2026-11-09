@@ -308,3 +308,12 @@ def test_today_filters_by_track(client):
     assert t["counts"] == {"growers": 1, "angels": 1}  # counts stay over every track
     t = client.get("/api/today?track=growers").json()
     assert [d["id"] for d in t["due"]] == [g["id"]] and t["drafts"] == [] and t["upcoming"] == []
+
+
+def test_due_list_runs_growers_first(client):
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+    person(client, name="Angel A", track="angels", next_step="Call", next_date=week_ago)
+    person(client, name="Zed Grower", next_step="Call", next_date=yesterday)
+    person(client, name="Eng", track="engineers", next_step="Call", next_date=yesterday)
+    assert [d["track"] for d in client.get("/api/today").json()["due"]] == ["growers", "engineers", "angels"]
