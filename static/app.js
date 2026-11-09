@@ -5,7 +5,7 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { meta: null, screen: "today", track: "growers", hypTrack: "", openDraft: null, openDue: null, openHyp: null, drawerId: null };
+const state = { meta: null, screen: "today", track: "growers", todayTrack: "", hypTrack: "", openDraft: null, openDue: null, openHyp: null, drawerId: null };
 
 // ------------------------------------------------------------------ api --
 async function api(method, url, body) {
@@ -118,26 +118,30 @@ async function render() {
 
 // -------------------------------------------------------------- today ----
 async function renderToday() {
-  const t = await get("/api/today");
+  const t = await get(`/api/today${state.todayTrack ? `?track=${encodeURIComponent(state.todayTrack)}` : ""}`);
   const d = new Date(t.date + "T00:00:00");
+  const allN = Object.values(t.counts).reduce((a, b) => a + b, 0);
+  // Filter by type of outreach: all, or one track (drafts + due counted per tab)
+  const tabs = ["", ...state.meta.tracks].map((k) => `<button class="${k === state.todayTrack ? "active" : ""}" data-today-track="${k}">${k || "all"}<span class="count">${k ? t.counts[k] || 0 : allN}</span></button>`).join("");
   const friday = state.meta.is_friday ? await renderReview() : "";
   const calendar = await renderCalendar(t.date);
   const drafts = t.drafts.map((x, i) => draftItem(x, i)).join("");
   const due = t.due.map((x, i) => dueItem(x, i + t.drafts.length)).join("");
   const up = t.upcoming.map((x, i) => `<div class="item" data-open-person="${x.id}" style="--i:${i}">${avatar(x, "sm")}<div><span class="title">${esc(x.name)}</span> <span class="sub">${esc(x.company)}</span><div class="sub one">${esc(x.next_step)}</div></div><div class="meta"><span class="chip">${esc(x.track)}</span><span class="chip date">${icon("cal")} ${fmtDate(x.next_date)}</span></div></div>`).join("");
   const none = !t.drafts.length && !t.due.length;
-  const parts = [];
+  const parts = state.todayTrack ? [state.todayTrack] : [];
   if (t.drafts.length) parts.push(`${t.drafts.length} draft${t.drafts.length > 1 ? "s" : ""} to approve`);
   if (t.due.length) parts.push(`${t.due.length} due`);
   return `<div class="screen">
     <div class="hero"><div>
       <p class="eyebrow">${d.toLocaleDateString(undefined, { weekday: "long" })}</p>
       <h1>${d.toLocaleDateString(undefined, { day: "numeric", month: "long" })}</h1>
-      <p class="sub">${parts.length ? parts.join(" · ") : "A clear day. Add a person, write a draft, or log a call."}</p>
+      <p class="sub">${!none ? parts.join(" · ") : state.todayTrack ? `Nothing for ${esc(state.todayTrack)} today.` : "A clear day. Add a person, write a draft, or log a call."}</p>
     </div></div>
     ${friday}
     ${calendar}
-    ${none ? empty("sprout", "Nothing to tick off", "Press N to add a person, or L to log a call.") : ""}
+    ${allN ? `<div class="tabs today-tabs">${tabs}</div>` : ""}
+    ${none ? (state.todayTrack && allN ? empty("sprout", `No ${esc(state.todayTrack)} to tick off`, `Pick another type above, or "all".`) : empty("sprout", "Nothing to tick off", "Press N to add a person, or L to log a call.")) : ""}
     ${t.drafts.length ? `<h2>Drafts to approve <em>${t.drafts.length}</em></h2><div class="list" id="drafts">${drafts}</div>` : ""}
     ${t.due.length ? `<h2>Due <em>${t.due.length}</em></h2><div class="list" id="due">${due}</div>` : ""}
     ${t.upcoming.length ? `<h2>Coming up</h2><div class="list">${up}</div>` : ""}
@@ -342,6 +346,7 @@ function hcard(h, i) {
 function wire(main) {
   $$("[data-track]", main).forEach((b) => b.onclick = () => { state.track = b.dataset.track; try { localStorage.setItem("track", state.track); } catch {} render(); });
   $$("[data-hyp-track]", main).forEach((b) => b.onclick = () => { state.hypTrack = b.dataset.hypTrack; render(); });
+  $$("[data-today-track]", main).forEach((b) => b.onclick = () => { state.todayTrack = b.dataset.todayTrack; state.openDraft = null; state.openDue = null; try { localStorage.setItem("todayTrack", state.todayTrack); } catch {} render(); });
   $$("[data-open-person]", main).forEach((el) => el.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openDrawer(+el.dataset.openPerson); }));
   $$("[data-act=connect-calendar]", main).forEach((a) => a.onclick = (e) => { e.preventDefault(); openCalendarModal(); });
   // drafts
@@ -795,6 +800,7 @@ document.addEventListener("keydown", (e) => {
   $$("#nav button").forEach((b) => b.onclick = () => show(b.dataset.screen));
   state.meta = await get("/api/meta");
   try { state.track = localStorage.getItem("track") || state.track; } catch {}
+  try { const tt = localStorage.getItem("todayTrack") || ""; state.todayTrack = state.meta.tracks.includes(tt) ? tt : ""; } catch {}
   let screen = "today"; try { screen = localStorage.getItem("screen") || "today"; } catch {}
   show(state.meta.is_friday ? "today" : screen);
 })();

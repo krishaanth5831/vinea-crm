@@ -291,3 +291,20 @@ def test_calendar_parse_match_and_link(client, monkeypatch):
     # disconnect
     client.post("/api/settings", json={"calendar_ics": ""})
     assert client.get("/api/calendar").json()["connected"] is False
+
+
+def test_today_filters_by_track(client):
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    later = (date.today() + timedelta(days=2)).isoformat()
+    g = person(client, name="Grower", next_step="Call", next_date=yesterday)
+    a = person(client, name="Angel", track="angels", email="a@example.com", next_step="Intro", next_date=later)
+    client.post(f"/api/people/{a['id']}/drafts", json={"channel": "email", "subject": "Hi", "body": "Hello"})
+    t = client.get("/api/today").json()
+    assert t["track"] == "" and t["counts"] == {"growers": 1, "angels": 1}
+    assert len(t["due"]) == 1 and len(t["drafts"]) == 1 and len(t["upcoming"]) == 1
+    t = client.get("/api/today?track=angels").json()
+    assert t["due"] == [] and [d["name"] for d in t["drafts"]] == ["Angel"]
+    assert [u["id"] for u in t["upcoming"]] == [a["id"]]
+    assert t["counts"] == {"growers": 1, "angels": 1}  # counts stay over every track
+    t = client.get("/api/today?track=growers").json()
+    assert [d["id"] for d in t["due"]] == [g["id"]] and t["drafts"] == [] and t["upcoming"] == []

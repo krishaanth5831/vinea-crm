@@ -79,8 +79,8 @@ def create_app(db_path=None) -> FastAPI:
 
     # ----------------------------------------------------------- today ----
     @app.get("/api/today")
-    def today():
-        return db.today_items(conn)
+    def today(track: str | None = None):
+        return db.today_items(conn, track or None)
 
     @app.get("/api/pulse")
     def pulse():
