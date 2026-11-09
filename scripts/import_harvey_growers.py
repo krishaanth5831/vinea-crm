@@ -16,7 +16,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from crm import config, db  # noqa: E402
 
-SIGNATURE = "\n\nKrishaanth Ramaraj\nFounder, Vinea\ngetvinea.nl"
+# No website line: the Gmail connector rewrites any URL or domain into a
+# google.com/url redirect, which looks like spam (seen 2026-11-09).
+SIGNATURE = "\n\nKrishaanth Ramaraj\nFounder, Vinea"
 OPT_OUT = {
     "nl": "Liever geen berichten meer van mij? Laat het weten, dan schrijf ik niet meer.",
     "en": "If you'd rather not hear from me again, just say so and I won't write again.",
