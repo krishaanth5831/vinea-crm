@@ -85,6 +85,10 @@ def main(path: str, track: str = "growers") -> None:
                 lines.append(f"Phone from: {r['phone_source_url']}")
             if r.get("email_source_url"):
                 lines.append(f"Email from: {r['email_source_url']}")
+            if r.get("work_url"):
+                lines.append(f"Their work: {r['work_url']}")
+            if r.get("crop_type"):
+                lines.append(f"Crop / glasshouse: {r['crop_type']}")
             if r.get("issues"):
                 lines.append(f"Flag: {r['issues']}")
             if r.get("notes"):
