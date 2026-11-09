@@ -527,17 +527,33 @@ def mark_insights_exported(conn, ids: list[int]) -> None:
 
 # ----------------------------------------------------------------- today ----
 
-def today_items(conn) -> dict:
-    """Everything that belongs on the Today screen."""
+def today_items(conn, track: str | None = None) -> dict:
+    """Everything that belongs on the Today screen, optionally for one track
+    (growers / engineers / labs / angels). `counts` is always over every track
+    (drafts + due per track) so the filter tabs can show what each one holds."""
     t = today()
+    # Due list runs growers first, then engineers, labs, angels (config.TRACKS
+    # order, same as the filter tabs); oldest date first within a track.
+    rank = " ".join(f"WHEN '{k}' THEN {i}" for i, k in enumerate(config.TRACKS))
     due = rows(conn.execute(
         "SELECT id, name, company, track, stage, channel, next_step, next_date FROM people "
         "WHERE next_date != '' AND next_date <= ? AND stage != 'closed' "
-        "ORDER BY next_date, name", (t,)))
-    upcoming = rows(conn.execute(
-        "SELECT id, name, company, track, stage, channel, next_step, next_date FROM people "
-        "WHERE next_date > ? AND stage != 'closed' ORDER BY next_date, name LIMIT 8", (t,)))
-    return {"date": t, "due": due, "upcoming": upcoming, "drafts": list_drafts(conn, "pending")}
+        f"ORDER BY CASE track {rank} ELSE {len(config.TRACKS)} END, next_date, name", (t,)))
+    drafts = list_drafts(conn, "pending")
+    counts: dict[str, int] = {}
+    for x in due + drafts:
+        counts[x["track"]] = counts.get(x["track"], 0) + 1
+    upcoming_sql = ("SELECT id, name, company, track, stage, channel, next_step, next_date FROM people "
+                    "WHERE next_date > ? AND stage != 'closed' ")
+    args: tuple = (t,)
+    if track:
+        due = [x for x in due if x["track"] == track]
+        drafts = [x for x in drafts if x["track"] == track]
+        upcoming_sql += "AND track = ? "
+        args += (track,)
+    upcoming = rows(conn.execute(upcoming_sql + "ORDER BY next_date, name LIMIT 8", args))
+    return {"date": t, "track": track or "", "counts": counts,
+            "due": due, "upcoming": upcoming, "drafts": drafts}
 
 
 def pulse(conn) -> dict:

@@ -9,6 +9,7 @@ Safe to re-run: people are matched on name + company, drafts are not duplicated.
 """
 
 import csv
+import re
 import sys
 from pathlib import Path
 
@@ -26,9 +27,21 @@ OPT_OUT = {
 
 HARVEY_TO_CRM_TRACK = {"investors": "angels"}
 
+# RTL marks, zero-width spaces and similar: LinkedIn names often carry them.
+INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
+
+
+def clean(s: str) -> str:
+    return INVISIBLE.sub("", s or "").strip()
+
 
 def next_step(r) -> str:
-    """What Today should say, given which contact details are actually on file."""
+    """What Today should say, given which contact details are actually on file.
+    A published business line comes first: the call is the opener, the drafts
+    follow it (or replace it when nobody picks up)."""
+    if r.get("phone"):
+        rest = " + ".join(x for x, ok in (("email", r["email"]), ("LinkedIn note", r["linkedin"])) if ok)
+        return f"Call {r['phone']}" + (f", then {rest}" if rest else "")
     if r["email"] and r["linkedin"]:
         return "Approve and send first email; LinkedIn note by hand"
     if r["email"]:
@@ -45,25 +58,44 @@ def main(path: str, track: str = "growers") -> None:
     conn = db.connect()
     rows = list(csv.DictReader(open(path, encoding="utf-8")))
     made = drafts = 0
+    people = conn.execute("SELECT id, name, company FROM people").fetchall()
+    known = {(clean(x["name"]).lower(), clean(x["company"]).lower()): x["id"] for x in people}
     for r in rows:
         if r["fit"] != "draft":
             continue
-        existing = db.one(conn.execute(
-            "SELECT id FROM people WHERE name = ? AND company = ?", (r["name"], r["company"])))
-        if existing:
-            pid = existing["id"]
-        else:
+        r["name"], r["company"] = clean(r["name"]), clean(r["company"])
+        pid = known.get((r["name"].lower(), r["company"].lower()))
+        if not pid:
             p = db.create_person(conn, {
                 "name": r["name"], "company": r["company"], "track": track,
                 "email": r["email"], "linkedin": r["linkedin"], "phone": r["phone"],
-                "language": r["language"] or "nl", "channel": "email" if r["email"] else "linkedin",
-                "next_step": next_step(r),
-                "next_date": db.today(),
+                "language": r["language"] or "nl",
+                "channel": "phone" if r["phone"] else "email" if r["email"] else "linkedin",
+                # a batch CSV may set its own next step / date ('' = on the board, not on Today)
+                "next_step": r.get("next_step") or next_step(r),
+                "next_date": db.today() if r.get("next_date", "TODAY") == "TODAY" else r["next_date"],
             })
             pid = p["id"]
+            known[(r["name"].lower(), r["company"].lower())] = pid
             made += 1
-            db.add_touch(conn, pid, "note", body=f"Source: {r['source']}\nRole: {r['title']}\n"
-                                               f"Harvey draft {r['harvey_draft_id']}")
+            lines = [f"Source: {r['source']}", f"Role: {r['title']}"]
+            if r.get("fit_reason"):
+                lines.append(f"Why: {r['fit_reason']}")
+            if r.get("phone_source_url"):
+                lines.append(f"Phone from: {r['phone_source_url']}")
+            if r.get("email_source_url"):
+                lines.append(f"Email from: {r['email_source_url']}")
+            if r.get("work_url"):
+                lines.append(f"Their work: {r['work_url']}")
+            if r.get("crop_type"):
+                lines.append(f"Crop / glasshouse: {r['crop_type']}")
+            if r.get("issues"):
+                lines.append(f"Flag: {r['issues']}")
+            if r.get("notes"):
+                lines.append(f"Notes: {r['notes']}")
+            if r.get("harvey_draft_id"):
+                lines.append(f"Harvey draft {r['harvey_draft_id']}")
+            db.add_touch(conn, pid, "note", body="\n".join(lines))
         have = {d["channel"] for d in db.get_person(conn, pid)["drafts"]}
         lang = r["language"] or "nl"
         # No address on file = no email draft on Today (it would look sendable).
