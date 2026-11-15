@@ -338,3 +338,20 @@ def test_stage_guides_cover_the_growers_ladder(client):
             # the column a finished meeting moves to follows the ladder's order
             ladder = config.STAGES["growers"]
             assert all(ladder.index(s) < ladder.index(g["done_stage"]) for s in g["next_for"])
+
+
+def test_page_files_are_never_served_stale(client):
+    """A stored app.js must not outlive an update (the Resources screen went missing that way)."""
+    import re
+    page = client.get("/")
+    assert page.headers["cache-control"] == "no-cache"
+    # the page links its script and stylesheet by the time they last changed
+    links = re.findall(r'(?:src|href)="(/static/[^"]+)"', page.text)
+    assert sorted(l.split("?")[0] for l in links) == ["/static/app.js", "/static/style.css"]
+    for link in links:
+        assert re.search(r"\?v=\d+$", link), link
+        r = client.get(link)
+        assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
+        # an unchanged file is confirmed with a short answer, still marked "ask first"
+        again = client.get(link, headers={"If-None-Match": r.headers["etag"]})
+        assert again.status_code == 304 and again.headers["cache-control"] == "no-cache"
