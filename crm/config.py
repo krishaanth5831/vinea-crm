@@ -4,6 +4,7 @@ values" lives here so the front end and the server agree.
 
 Design (2026-11-05): three screens, four tracks, hypotheses as first-class
 records, two key actions (log a call, approve a draft). Keep this small.
+A fourth, read-only screen (Resources, 2026-11-15) holds the stage guides.
 """
 
 import os
@@ -20,8 +21,10 @@ AUDIO_DIR = DATA_DIR / "calls"
 TRACKS = ["growers", "engineers", "labs", "angels"]
 
 STAGES = {
-    # growers: email then phone; call -> visit -> demo -> pilot scope -> LOI
-    "growers":   ["new", "contacted", "call", "visit", "demo", "pilot", "loi", "closed"],
+    # growers: email then phone; discovery call -> demo -> criteria meeting
+    # (pilot scope) -> site visit -> LOI. Same order as the stage guides in
+    # resources.py. A column means "this step is done".
+    "growers":   ["new", "contacted", "call", "demo", "pilot", "visit", "loi", "closed"],
     # engineers: give-first; goal is someone who reviews the approach and stays an ally
     "engineers": ["new", "contacted", "replied", "call", "reviewing", "ally", "closed"],
     # labs: what data / evals would they want; partner on an eval suite
