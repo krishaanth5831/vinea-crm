@@ -1,7 +1,7 @@
 # Vinea CRM
 
-A three-screen local tool for running Vinea's outreach: who you are talking to,
-what you are pitching them, and what to do today. Python + SQLite, opens in the
+A small local tool for running Vinea's outreach: who you are talking to,
+what you are pitching them, what to do today, and how to run each meeting. Python + SQLite, opens in the
 browser, nothing leaves the laptop.
 
 ```
@@ -14,7 +14,7 @@ Needs Python 3.11+ with `fastapi`, `uvicorn` and `python-multipart` (already on
 this machine). Optional: `pip install faster-whisper` to transcribe call
 recordings; the `claude` CLI on PATH to get draft messages and ✓/✗ suggestions.
 
-## The three screens
+## The screens
 
 **Today** — one list to tick off. Drafts waiting for approval (edit inline, open
 in mail or copy for LinkedIn, mark sent, skip) and follow-ups that are due.
@@ -40,6 +40,16 @@ ring and the Friday review break the week down by platform.
 as they contradict it; past five one-sided calls the status flips to *holding*
 or *disproved*. *Revise* closes a guess and opens the next version linked to it,
 so the chain reads as "X conversations, what I found, how I changed".
+
+**Resources** (`4`) — one guide per step of the growers ladder: discovery call,
+demo, criteria meeting, site visit, letter of intent walk-through, then "after
+the signature" and "keeping them warm". Each guide says what to talk about, the
+questions (bold ones first, with a copy button), what the meeting must end with,
+what to send afterwards, what to do before the next meeting, and which numbers
+to bring back. A person's drawer links to the guide for their next step, and a
+guide lists who has it next. The growers board runs in the same order: call,
+demo, pilot scope (the criteria meeting), visit, LOI. The text lives in
+`crm/resources.py`; edit it there and restart.
 
 ## The two actions
 

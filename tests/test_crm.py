@@ -6,7 +6,7 @@ from datetime import date, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from crm import calls, config, vault
+from crm import calls, config, resources, vault
 from crm.app import create_app
 
 
@@ -317,3 +317,24 @@ def test_due_list_runs_growers_first(client):
     person(client, name="Zed Grower", next_step="Call", next_date=yesterday)
     person(client, name="Eng", track="engineers", next_step="Call", next_date=yesterday)
     assert [d["track"] for d in client.get("/api/today").json()["due"]] == ["growers", "engineers", "angels"]
+
+
+def test_stage_guides_cover_the_growers_ladder(client):
+    resources.check()  # every guide names real board columns
+    gs = client.get("/api/resources").json()["guides"]
+    assert [g["step"] for g in gs if g["step"]] == [1, 2, 3, 4, 5]
+    assert client.get("/api/resources?track=angels").json()["guides"] == []
+    # every open growers column has exactly one guide as its next step
+    for stage in config.STAGES["growers"]:
+        nxt = [g["id"] for g in gs if g["track"] == "growers" and stage in g["next_for"]]
+        assert len(nxt) == (0 if stage == "closed" else 1), (stage, nxt)
+    # a meeting guide says what to ask, how to end, what to send and what to do next
+    for g in gs:
+        kinds = [s["kind"] for s in g["sections"]]
+        titles = [s["title"] for s in g["sections"]]
+        if g["step"]:
+            assert "questions" in kinds and "ask" in kinds
+            assert {"Deliverables", "Before the next meeting", "Keep them warm"} <= set(titles)
+            # the column a finished meeting moves to follows the ladder's order
+            ladder = config.STAGES["growers"]
+            assert all(ladder.index(s) < ladder.index(g["done_stage"]) for s in g["next_for"])

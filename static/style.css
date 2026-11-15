@@ -385,3 +385,32 @@ main.wide { max-width: none; }
 .li-step .count.over { color: var(--no); font-weight: 600; }
 .li-step textarea { width: 100%; border: 0; background: transparent; padding: 0; min-height: 2.6rem; box-shadow: none; border-radius: 0; }
 .li-step textarea:hover, .li-step textarea:focus { border: 0; box-shadow: none; }
+
+/* ---- resources: stage guides ---- */
+.steps { display: flex; flex-wrap: wrap; gap: .45rem; margin: 1.5rem 0 1rem; }
+.steps button { border-radius: 999px; padding: .42rem .95rem .42rem .45rem; color: var(--muted); gap: .5rem; }
+.steps button i { font-style: normal; display: grid; place-items: center; width: 1.55rem; height: 1.55rem; border-radius: 50%; background: var(--surface-2); font-size: .76rem; font-weight: 600; transition: background .2s, color .2s; }
+.steps button:not(:has(i)) { padding-left: .95rem; }
+.steps button.active { color: var(--text); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); box-shadow: var(--shadow-2); }
+.steps button.active i { background: var(--accent); color: var(--accent-ink); }
+.gmeta { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: 1.2rem; min-height: 1.6rem; }
+.gmeta .chip { text-transform: none; letter-spacing: 0; text-decoration: none; }
+.ggrid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: .9rem; align-items: start; }
+.ggrid.one { grid-template-columns: minmax(0, 760px); }
+.ggrid > div { display: grid; gap: .9rem; }
+.gsec { animation: rise .35s var(--ease) both; }
+.gsec h3 { font: 600 .74rem/1 var(--font); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: .75rem; }
+.gsec p { line-height: 1.62; }
+.gsec ul, .gsec ol { margin: 0; padding-left: 1.2rem; display: grid; gap: .5rem; line-height: 1.5; }
+.gsec .qs li.first { font-weight: 600; }
+.gsec .qs li::marker { color: var(--faint); font-weight: 500; }
+.gsec .qs li.first::marker { color: var(--accent); font-weight: 700; }
+.gsec.k-ask { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface)); }
+.gsec .say { font: 400 1.32rem/1.35 var(--display); margin-bottom: .75rem; }
+.gsec .say::before { content: "\201C"; color: var(--accent); margin-right: .05em; }
+.gsec .say::after { content: "\201D"; color: var(--accent); margin-left: .05em; }
+.gsec .actions { margin-top: .95rem; }
+.guide-link { margin: -.2rem 0 .75rem; }
+.guide-link a { display: inline-flex; align-items: center; gap: .4rem; font-weight: 500; }
+.guide-link:empty { display: none; }
+@media (max-width: 860px) { .ggrid { grid-template-columns: 1fr; } }

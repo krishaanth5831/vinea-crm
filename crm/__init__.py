@@ -1,1 +1,1 @@
-"""Vinea outreach CRM: a three-screen local tool (Today, People, Hypotheses)."""
+"""Vinea outreach CRM: a small local tool (Today, People, Hypotheses, Resources)."""

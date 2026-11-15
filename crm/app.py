@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import calendar as cal
-from . import calls, config, db, vault
+from . import calls, config, db, resources, vault
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -288,6 +288,12 @@ def create_app(db_path=None) -> FastAPI:
         db.mark_insights_exported(conn, done_ids)
         result["count"] = len(done_ids)
         return result
+
+    # ------------------------------------------------------- resources ----
+    @app.get("/api/resources")
+    def stage_guides(track: str | None = None):
+        """Stage guides: what to ask, how to end, what to send, per meeting."""
+        return {"guides": resources.guides(track or None)}
 
     # ---------------------------------------------------------- static ----
     @app.get("/")

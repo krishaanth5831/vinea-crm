@@ -1,11 +1,11 @@
-/* Vinea CRM front end. Three screens, one drawer, one modal, one palette.
+/* Vinea CRM front end. Four screens, one drawer, one modal, one palette.
    No framework: every screen is a render function that writes into #main. */
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { meta: null, screen: "today", track: "growers", todayTrack: "", hypTrack: "", openDraft: null, openDue: null, openHyp: null, drawerId: null };
+const state = { meta: null, screen: "today", track: "growers", todayTrack: "", hypTrack: "", openDraft: null, openDue: null, openHyp: null, drawerId: null, guides: [], guide: "" };
 
 // ------------------------------------------------------------------ api --
 async function api(method, url, body) {
@@ -111,6 +111,7 @@ async function render() {
   const main = $("#main");
   if (state.screen === "today") main.innerHTML = await renderToday();
   else if (state.screen === "people") main.innerHTML = await renderPeople();
+  else if (state.screen === "resources") main.innerHTML = await renderResources();
   else main.innerHTML = await renderHypotheses();
   wire(main);
   refreshPulse();
@@ -342,6 +343,49 @@ function hcard(h, i) {
     ${body}</div>`;
 }
 
+// ------------------------------------------------------------ resources ----
+// Stage guides: one document per meeting on a track's ladder. Read-only here;
+// the text lives in crm/resources.py.
+// The guide a person needs next, given the board column they sit in.
+const guideFor = (track, stage) => state.guides.find((g) => g.track === track && g.next_for.includes(stage));
+function openGuide(id) { state.guide = id; try { localStorage.setItem("guide", id); } catch {} show("resources"); }
+
+function guideSection(s) {
+  let body = "";
+  if (s.kind === "text") body = `<p>${esc(s.text)}</p>`;
+  else if (s.kind === "list") body = `<ul>${s.items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+  else if (s.kind === "questions") body = `<ol class="qs">${s.items.map((x) => `<li class="${x.first ? "first" : ""}">${esc(x.q)}</li>`).join("")}</ol>
+    <div class="actions"><button class="ghost" data-act="copy-questions">Copy questions</button><span class="muted small">Bold ones first.</span></div>`;
+  else if (s.kind === "ask") body = `<p class="say">${esc(s.say)}</p><p class="small muted"><b>It failed if:</b> ${esc(s.failed)}</p>`;
+  return `<section class="card gsec k-${s.kind}"><h3>${esc(s.title)}</h3>${body}</section>`;
+}
+
+async function renderResources() {
+  if (!state.guides.length) return `<div class="screen">${empty("note", "No guides yet", "Stage guides are written in crm/resources.py.")}</div>`;
+  const cur = state.guides.find((g) => g.id === state.guide) || state.guides[0];
+  state.guide = cur.id;
+  const list = state.guides.filter((g) => g.track === cur.track);
+  const meetings = list.filter((g) => g.step).length;
+  const steps = list.map((g) => `<button class="${g.id === cur.id ? "active" : ""}" data-guide="${g.id}">${g.step ? `<i>${g.step}</i>` : ""}${esc(g.title)}</button>`).join("");
+  // Who has this guide as their next step: names when few, a count when many.
+  const here = (await get("/api/people")).filter((p) => p.track === cur.track && cur.next_for.includes(p.stage));
+  const who = !here.length ? "" : here.length > 6
+    ? `<span class="chip">${here.length} people have this next</span>`
+    : `<span class="muted small">Next for</span>${here.map((p) => `<a href="#" class="chip accent" data-open-person="${p.id}">${esc(p.name)}</a>`).join("")}`;
+  const main = cur.sections.filter((s) => !s.side).map(guideSection).join("");
+  const side = cur.sections.filter((s) => s.side).map(guideSection).join("");
+  return `<div class="screen">
+    <div class="hero"><div><p class="eyebrow">Stage guides · ${esc(cur.track)}</p><h1>${esc(cur.title)}</h1><p class="sub">${esc(cur.goal)}</p></div></div>
+    <div class="steps">${steps}</div>
+    <div class="gmeta">
+      ${cur.step ? `<span class="chip">Meeting ${cur.step} of ${meetings}</span>` : ""}
+      ${cur.done_stage ? `<span class="chip">When done, move the card to ${esc(stageLabel(cur.done_stage))}</span>` : ""}
+      ${who}
+    </div>
+    <div class="ggrid ${side ? "" : "one"}"><div>${main}</div>${side ? `<div>${side}</div>` : ""}</div>
+  </div>`;
+}
+
 // ---------------------------------------------------------------- wire ----
 function wire(main) {
   $$("[data-track]", main).forEach((b) => b.onclick = () => { state.track = b.dataset.track; try { localStorage.setItem("track", state.track); } catch {} render(); });
@@ -349,6 +393,14 @@ function wire(main) {
   $$("[data-today-track]", main).forEach((b) => b.onclick = () => { state.todayTrack = b.dataset.todayTrack; state.openDraft = null; state.openDue = null; try { localStorage.setItem("todayTrack", state.todayTrack); } catch {} render(); });
   $$("[data-open-person]", main).forEach((el) => el.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openDrawer(+el.dataset.openPerson); }));
   $$("[data-act=connect-calendar]", main).forEach((a) => a.onclick = (e) => { e.preventDefault(); openCalendarModal(); });
+  // resources
+  $$("[data-guide]", main).forEach((b) => b.onclick = () => openGuide(b.dataset.guide));
+  $$("[data-act=copy-questions]", main).forEach((b) => b.onclick = guard(async () => {
+    const g = state.guides.find((x) => x.id === state.guide);
+    const qs = g.sections.find((x) => x.kind === "questions");
+    await navigator.clipboard.writeText(qs.items.map((x, i) => `${i + 1}. ${x.q}`).join("\n"));
+    toast("Questions copied");
+  }));
   // drafts
   $$("[data-draft]", main).forEach((it) => {
     const id = +it.dataset.draft;
@@ -490,6 +542,7 @@ async function openDrawer(id) {
       <div class="field"><label>Stage</label><select data-f="stage">${stageOpts(p.track, p.stage)}</select></div>
       <div class="field"><label>Reach via</label><select data-f="channel"><option value="">not set</option>${channelOpts(p.channel)}</select></div>
     </div>
+    <p class="small guide-link" data-guide-link></p>
     <div class="row">
       <div class="field" style="flex:2"><label>Next step</label><input data-f="next_step" value="${esc(p.next_step)}" placeholder="What happens next"></div>
       <div class="field"><label>When</label><input type="date" data-f="next_date" value="${esc(p.next_date)}"></div>
@@ -520,12 +573,21 @@ async function openDrawer(id) {
   dr.classList.add("show"); $("#drawer-scrim").classList.add("show");
   const close = () => { dr.classList.remove("show"); $("#drawer-scrim").classList.remove("show"); state.drawerId = null; render(); };
   $("[data-act=close]", dr).onclick = close; $("#drawer-scrim").onclick = close;
+  // Link to the stage guide for whatever comes next in this person's column.
+  const paintGuide = (track, stage) => {
+    const g = guideFor(track, stage);
+    $("[data-guide-link]", dr).innerHTML = g ? `<a href="#" data-act="guide">${icon("note")} Next: ${esc(g.title)} · open the guide ${icon("arrow")}</a>` : "";
+    const a = $("[data-act=guide]", dr);
+    if (a) a.onclick = (e) => { e.preventDefault(); dr.classList.remove("show"); $("#drawer-scrim").classList.remove("show"); state.drawerId = null; openGuide(g.id); };
+  };
+  paintGuide(p.track, p.stage);
   const fields = ["name", "company", "track", "stage", "next_step", "next_date", "email", "linkedin", "phone", "language", "channel"];
   fields.forEach((f) => { const el = $(`[data-f=${f}]`, dr); el.onchange = guard(async () => {
     const data = { [f]: el.value };
     if (f === "track") data.stage = "new";
     const np = await api("PATCH", `/api/people/${id}`, data);
     if (f === "track") $("[data-f=stage]", dr).innerHTML = stageOpts(np.track, np.stage);
+    if (f === "track" || f === "stage") paintGuide(np.track, np.stage);
     toast("Saved");
   }); });
   $("[data-f=qnote]", dr).onkeydown = guard(async (e) => {
@@ -747,7 +809,7 @@ function openPalette() {
   w.onclick = (e) => { if (e.target === w) closePalette(); };
   const input = $("input", w), res = $(".results", w);
   const actions = [
-    { t: "Today", k: "1", f: () => show("today") }, { t: "People", k: "2", f: () => show("people") }, { t: "Hypotheses", k: "3", f: () => show("hypotheses") },
+    { t: "Today", k: "1", f: () => show("today") }, { t: "People", k: "2", f: () => show("people") }, { t: "Hypotheses", k: "3", f: () => show("hypotheses") }, { t: "Resources", k: "4", f: () => show("resources") },
     { t: "New person", k: "N", f: () => openPersonModal() }, { t: "Log a call", k: "L", f: () => openCallModal() }, { t: "New hypothesis", k: "H", f: () => openHypModal() },
     { t: "Toggle dark mode", k: "", f: toggleTheme },
     { t: "Calendar settings", k: "", f: openCalendarModal },
@@ -786,7 +848,7 @@ document.addEventListener("keydown", (e) => {
   if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
   if ($("#modal").classList.contains("show") || $("#palette").classList.contains("show")) return;
   const k = e.key.toLowerCase();
-  if (k === "1") show("today"); else if (k === "2") show("people"); else if (k === "3") show("hypotheses");
+  if (k === "1") show("today"); else if (k === "2") show("people"); else if (k === "3") show("hypotheses"); else if (k === "4") show("resources");
   else if (k === "n") openPersonModal(); else if (k === "l") openCallModal(state.drawerId || undefined); else if (k === "h") openHypModal();
   else if (k === "/") { e.preventDefault(); openPalette(); }
 });
@@ -799,6 +861,8 @@ document.addEventListener("keydown", (e) => {
   $("#btn-call").onclick = () => openCallModal(state.drawerId || undefined);
   $$("#nav button").forEach((b) => b.onclick = () => show(b.dataset.screen));
   state.meta = await get("/api/meta");
+  state.guides = (await get("/api/resources").catch(() => ({ guides: [] }))).guides;
+  try { state.guide = localStorage.getItem("guide") || ""; } catch {}
   try { state.track = localStorage.getItem("track") || state.track; } catch {}
   try { const tt = localStorage.getItem("todayTrack") || ""; state.todayTrack = state.meta.tracks.includes(tt) ? tt : ""; } catch {}
   let screen = "today"; try { screen = localStorage.getItem("screen") || "today"; } catch {}
