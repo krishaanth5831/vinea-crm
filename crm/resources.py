@@ -81,6 +81,7 @@ GROWERS = [
                 "Look up the company, the crop, the size, and any press about robot trials there.",
                 "Pick one or two hypotheses to test.",
                 "Have two dates ready to offer for the demo.",
+                "If this first meeting is at their greenhouse, it is still the discovery call: move the card to call, and take the site-visit measurements while you are there.",
             ], side=True),
             _ask("Can I show you what we're building for that job next week? Who else should see it?",
                  "No date in the calendar, or \"send me something and I'll have a look.\""),

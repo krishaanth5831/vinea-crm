@@ -357,7 +357,7 @@ function guideSection(s) {
   else if (s.kind === "questions") body = `<ol class="qs">${s.items.map((x) => `<li class="${x.first ? "first" : ""}">${esc(x.q)}</li>`).join("")}</ol>
     <div class="actions"><button class="ghost" data-act="copy-questions">Copy questions</button><span class="muted small">Bold ones first.</span></div>`;
   else if (s.kind === "ask") body = `<p class="say">${esc(s.say)}</p><p class="small muted"><b>It failed if:</b> ${esc(s.failed)}</p>`;
-  return `<section class="card gsec ${s.kind}"><h3>${esc(s.title)}</h3>${body}</section>`;
+  return `<section class="card gsec k-${s.kind}"><h3>${esc(s.title)}</h3>${body}</section>`;
 }
 
 async function renderResources() {

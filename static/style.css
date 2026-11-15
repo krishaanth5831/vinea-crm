@@ -405,7 +405,7 @@ main.wide { max-width: none; }
 .gsec .qs li.first { font-weight: 600; }
 .gsec .qs li::marker { color: var(--faint); font-weight: 500; }
 .gsec .qs li.first::marker { color: var(--accent); font-weight: 700; }
-.gsec.ask { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface)); }
+.gsec.k-ask { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface)); }
 .gsec .say { font: 400 1.32rem/1.35 var(--display); margin-bottom: .75rem; }
 .gsec .say::before { content: "\201C"; color: var(--accent); margin-right: .05em; }
 .gsec .say::after { content: "\201D"; color: var(--accent); margin-left: .05em; }
