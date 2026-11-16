@@ -11,13 +11,35 @@ from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import calendar as cal
 from . import calls, config, db, resources, vault
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
+
+# The page files (index.html, app.js, style.css) change with every update of
+# the app. Sent without a cache header, the browser decides for itself how long
+# a stored copy stays good, and after a quiet week that is many hours: on
+# 2026-11-15 a new index.html (with the Resources button) ran next to an app.js
+# from six days earlier that had no Resources screen. Two guards, both below:
+#   1. "no-cache" on every page file: the browser may keep its copy but has to
+#      ask first whether it is still current (a short "not modified" answer
+#      when it is).
+#   2. the page links its script and stylesheet by the time they were last
+#      changed (app.js?v=...), so an edited file has a new address that no
+#      stored copy can answer.
+ASK_FIRST = {"Cache-Control": "no-cache"}
+
+
+class PageFiles(StaticFiles):
+    """Static files the browser must re-check before it reuses a stored copy."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(ASK_FIRST)
+        return response
 
 
 def create_app(db_path=None) -> FastAPI:
@@ -298,7 +320,11 @@ def create_app(db_path=None) -> FastAPI:
     # ---------------------------------------------------------- static ----
     @app.get("/")
     def index():
-        return FileResponse(STATIC / "index.html")
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        for name in ("style.css", "app.js"):
+            changed = int((STATIC / name).stat().st_mtime)
+            html = html.replace(f"/static/{name}", f"/static/{name}?v={changed}")
+        return HTMLResponse(html, headers=ASK_FIRST)
 
-    app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
+    app.mount("/static", PageFiles(directory=str(STATIC)), name="static")
     return app
