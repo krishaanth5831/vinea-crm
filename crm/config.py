@@ -29,7 +29,7 @@ STAGES = {
     "engineers": ["new", "contacted", "replied", "call", "reviewing", "ally", "closed"],
     # labs: what data / evals would they want; partner on an eval suite
     "labs":      ["new", "contacted", "replied", "call", "eval", "partner", "closed"],
-    # angels: relationship + monthly update first; ask only after grower LOIs
+    # angels: relationship + an update every two weeks first; ask only after grower LOIs
     "angels":    ["new", "contacted", "relationship", "updates", "asked", "committed", "closed"],
 }
 
@@ -38,7 +38,7 @@ STAGE_LABELS = {
     "pilot": "pilot scope",
     "loi": "LOI",
     "eval": "eval spec",
-    "updates": "monthly updates",
+    "updates": "update list",
     "reviewing": "reviewing us",
 }
 
@@ -127,8 +127,8 @@ would want.
 """,
     "angels": """
 Angel investors who backed robotics or agtech, exited founders, operator
-syndicates. The goal is a relationship and permission to send a short monthly
-update. Do not ask for money. Share what he is learning from growers in one
+syndicates. The goal is a relationship and permission to send a short update
+every two weeks. Do not ask for money. Share what he is learning from growers in one
 line and ask whether they would be open to a short call or to receiving the
 update.
 """,
