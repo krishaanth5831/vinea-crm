@@ -7,16 +7,15 @@ settings table. The CRM fetches it, parses the events and matches them to
 people by name, so Today shows who you are meeting and the person drawer
 shows what is planned with them. No OAuth, no Google Cloud project.
 
-Writing: a prefilled Google Calendar link (`event_link`) opens the normal
-"new event" page with the person, next step and date filled in. One click,
-and the event is on the calendar the user already has open.
+Writing: nothing is written from here. "Add to calendar" in the person
+drawer is a prefilled Google Calendar "new event" link, built in the front
+end (eventLink in static/app.js), so the user saves the event themselves.
 """
 
 import re
 import time
 import urllib.request
-from datetime import date, datetime, timedelta, timezone
-from urllib.parse import quote
+from datetime import datetime, timedelta, timezone
 
 _CACHE: dict = {"url": "", "at": 0.0, "events": []}
 CACHE_SECONDS = 300
@@ -122,17 +121,3 @@ def match_people(events: list[dict], people: list[dict]) -> list[dict]:
         })
     return out
 
-
-def event_link(title: str, day: str, details: str = "", location: str = "",
-               hour: int = 10, minutes: int = 30) -> str:
-    """A Google Calendar 'new event' URL prefilled for `day` (ISO date)."""
-    try:
-        d = date.fromisoformat(day)
-    except ValueError:
-        d = date.today()
-    start = datetime.combine(d, datetime.min.time()).replace(hour=hour)
-    end = start + timedelta(minutes=minutes)
-    fmt = "%Y%m%dT%H%M%S"
-    return ("https://calendar.google.com/calendar/render?action=TEMPLATE"
-            f"&text={quote(title)}&dates={start.strftime(fmt)}/{end.strftime(fmt)}"
-            f"&details={quote(details)}&location={quote(location)}")
