@@ -120,4 +120,3 @@ def match_people(events: list[dict], people: list[dict]) -> list[dict]:
             "all_day": bool(e.get("all_day")), "people": hits,
         })
     return out
-

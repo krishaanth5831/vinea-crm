@@ -41,8 +41,9 @@ Optional extras:
 
 - `.venv/bin/pip install faster-whisper` to transcribe call recordings on
   your machine (openai-whisper also works if it is installed instead).
-- The `claude` CLI (Claude Code) on your PATH, logged in, for drafts and ✓/✗ suggestions. Without it those buttons
-  are disabled and you write by hand.
+- The `claude` CLI (Claude Code) on your PATH, logged in, for drafts and
+  ✓/✗ suggestions. Without it *Draft with Claude* is hidden, *Suggest* is
+  greyed out, and you write drafts and verdicts by hand.
 
 ## Run it
 
