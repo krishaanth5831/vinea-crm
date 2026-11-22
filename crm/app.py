@@ -10,7 +10,7 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi import FastAPI, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -254,7 +254,7 @@ def create_app(db_path=None) -> FastAPI:
         transcript = (d.get("transcript") or "").strip()
         if not transcript:
             raise ValueError("transcript is empty")
-        active = [h for h in db.list_hypotheses(conn, include_revised=False)]
+        active = db.list_hypotheses(conn, include_revised=False)
         return calls.extract(transcript, p, active, db.today())
 
     @app.post("/api/calls/confirm")

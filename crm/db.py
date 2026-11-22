@@ -1,5 +1,5 @@
 """
-SQLite storage. One file, six tables, no ORM.
+SQLite storage. One file, seven tables, no ORM.
 
     people      one row per person you are talking to
     touches     the timeline: notes, emails, LinkedIn messages, calls, visits
@@ -7,6 +7,7 @@ SQLite storage. One file, six tables, no ORM.
     hypotheses  the guesses you pitch on calls
     evidence    one ✓ or ✗ per hypothesis per call, with a quote
     insights    call takeaways tagged with a Vinea module, exported to the vault
+    settings    small key/value store (the Google Calendar iCal address)
 
 Every function takes and returns plain dicts so the API layer stays thin.
 """
@@ -97,6 +98,12 @@ def now() -> str:
 
 def today() -> str:
     return date.today().isoformat()
+
+
+def week_ago() -> str:
+    """Timestamp seven days back, in the same form as now(): the start of the
+    window the top-bar pulse and the Friday review count over."""
+    return (datetime.now() - timedelta(days=7)).replace(microsecond=0).isoformat(sep=" ")
 
 
 def connect(path=None) -> sqlite3.Connection:
@@ -558,7 +565,7 @@ def today_items(conn, track: str | None = None) -> dict:
 
 def pulse(conn) -> dict:
     """Small numbers for the top bar: touches and calls in the last 7 days."""
-    since = (datetime.now() - timedelta(days=7)).replace(microsecond=0).isoformat(sep=" ")
+    since = week_ago()
     touches = one(conn.execute(
         "SELECT count(*) c FROM touches WHERE at >= ? AND kind != 'note'", (since,)))["c"]
     calls = one(conn.execute(
@@ -573,7 +580,7 @@ def pulse(conn) -> dict:
 
 def week_summary(conn) -> dict:
     """Lists for the Friday review (last 7 days)."""
-    since = (datetime.now() - timedelta(days=7)).replace(microsecond=0).isoformat(sep=" ")
+    since = week_ago()
     touches = rows(conn.execute(
         "SELECT kind, count(*) c FROM touches WHERE at >= ? GROUP BY kind ORDER BY c DESC", (since,)))
     channels = rows(conn.execute(
