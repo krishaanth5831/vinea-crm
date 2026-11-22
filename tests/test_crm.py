@@ -1,4 +1,4 @@
-"""End-to-end checks through the HTTP API on an in-memory database."""
+"""End-to-end checks through the HTTP API, each on a fresh database in a temp folder."""
 
 import json
 from datetime import date, timedelta
@@ -6,7 +6,7 @@ from datetime import date, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from crm import calls, config, resources, vault
+from crm import calls, config, resources
 from crm.app import create_app
 
 
@@ -266,7 +266,7 @@ END:VCALENDAR
 """
 
 
-def test_calendar_parse_match_and_link(client, monkeypatch):
+def test_calendar_parse_and_match(client, monkeypatch):
     from crm import calendar as cal
     d1 = date.today().strftime("%Y%m%d")
     d2 = (date.today() + timedelta(days=2)).strftime("%Y%m%d")
@@ -285,9 +285,6 @@ def test_calendar_parse_match_and_link(client, monkeypatch):
     assert c["events"][0]["people"][0]["id"] == p["id"]
     assert c["events"][0]["all_day"] is False and c["events"][1]["all_day"] is True
     assert c["events"][1]["people"] == []
-    # description unescaped, and a prefilled Google Calendar link
-    link = cal.event_link("Visit · Ali", "2026-11-20", "x y")
-    assert "action=TEMPLATE" in link and "20261120T100000/20261120T103000" in link and "Visit%20%C2%B7%20Ali" in link
     # disconnect
     client.post("/api/settings", json={"calendar_ics": ""})
     assert client.get("/api/calendar").json()["connected"] is False

@@ -28,6 +28,14 @@ function toast(msg, err = false) {
 }
 const guard = (fn) => async (...a) => { try { return await fn(...a); } catch (e) { toast(e.message, true); } };
 
+// Per-browser memory for small things (last screen, tabs, guide, theme).
+// Storage can be blocked (private window); then the app simply forgets.
+const remember = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
+const recall = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
+
+// LinkedIn's limit on a connection note (same as LINKEDIN_NOTE_MAX in crm/db.py).
+const LI_NOTE_MAX = 300;
+
 // -------------------------------------------------------------- helpers --
 const ICONS = {
   cal: '<path d="M8 2v3M16 2v3M3 9h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>',
@@ -55,7 +63,11 @@ const linkKindChannel = (kindSel, chSel, fallback = "") => {
   const apply = () => { const note = kindSel.value === "note"; chSel.value = note ? "" : (state.meta.default_channel[kindSel.value] || fallback || ""); chSel.disabled = note; };
   kindSel.addEventListener("change", apply); apply();
 };
-const eventLink = (title, day, details = "") => `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${(day || state.meta.today).replace(/-/g, "")}T100000/${(day || state.meta.today).replace(/-/g, "")}T103000&details=${encodeURIComponent(details)}`;
+// Google Calendar "new event" page, prefilled for 10:00-10:30 on `day` (ISO date, today if empty).
+const eventLink = (title, day, details = "") => {
+  const d = (day || state.meta.today).replace(/-/g, "");
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(title)}&dates=${d}T100000/${d}T103000&details=${encodeURIComponent(details)}`;
+};
 const fmtTime = (iso) => new Date(iso.replace(" ", "T")).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 const waLink = (phone, text) => `https://wa.me/${String(phone || "").replace(/[^\d]/g, "")}?text=${encodeURIComponent(text)}`;
 const hue = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
@@ -104,7 +116,7 @@ function show(screen) {
   state.screen = screen;
   $$("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.screen === screen));
   $("#main").className = screen === "people" ? "wide" : "";
-  try { localStorage.setItem("screen", screen); } catch {}
+  remember("screen", screen);
   render();
 }
 async function render() {
@@ -184,7 +196,7 @@ function draftItem(x, i) {
   const twoStep = li && !!x.subject;  // connection note + message for after they accept
   const fields = li
     ? `<div class="li-steps">
-        ${twoStep ? `<div class="li-step"><div class="head"><span class="step">1 · Connection note</span><span class="count ${x.subject.length > 300 ? "over" : ""}" data-count>${x.subject.length} / 300</span></div><textarea data-f="subject" rows="3">${esc(x.subject)}</textarea></div>` : ""}
+        ${twoStep ? `<div class="li-step"><div class="head"><span class="step">1 · Connection note</span><span class="count ${x.subject.length > LI_NOTE_MAX ? "over" : ""}" data-count>${x.subject.length} / ${LI_NOTE_MAX}</span></div><textarea data-f="subject" rows="3">${esc(x.subject)}</textarea></div>` : ""}
         <div class="li-step"><div class="head"><span class="step">${twoStep ? "2 · " : ""}Message after they accept</span></div><textarea data-f="body" rows="6">${esc(x.body)}</textarea></div>
       </div>`
     : `${x.channel === "email" ? `<div class="field"><label>Subject</label><input data-f="subject" value="${esc(x.subject)}"></div>` : ""}
@@ -348,7 +360,7 @@ function hcard(h, i) {
 // the text lives in crm/resources.py.
 // The guide a person needs next, given the board column they sit in.
 const guideFor = (track, stage) => state.guides.find((g) => g.track === track && g.next_for.includes(stage));
-function openGuide(id) { state.guide = id; try { localStorage.setItem("guide", id); } catch {} show("resources"); }
+function openGuide(id) { state.guide = id; remember("guide", id); show("resources"); }
 
 function guideSection(s) {
   let body = "";
@@ -388,9 +400,9 @@ async function renderResources() {
 
 // ---------------------------------------------------------------- wire ----
 function wire(main) {
-  $$("[data-track]", main).forEach((b) => b.onclick = () => { state.track = b.dataset.track; try { localStorage.setItem("track", state.track); } catch {} render(); });
+  $$("[data-track]", main).forEach((b) => b.onclick = () => { state.track = b.dataset.track; remember("track", state.track); render(); });
   $$("[data-hyp-track]", main).forEach((b) => b.onclick = () => { state.hypTrack = b.dataset.hypTrack; render(); });
-  $$("[data-today-track]", main).forEach((b) => b.onclick = () => { state.todayTrack = b.dataset.todayTrack; state.openDraft = null; state.openDue = null; try { localStorage.setItem("todayTrack", state.todayTrack); } catch {} render(); });
+  $$("[data-today-track]", main).forEach((b) => b.onclick = () => { state.todayTrack = b.dataset.todayTrack; state.openDraft = null; state.openDue = null; remember("todayTrack", state.todayTrack); render(); });
   $$("[data-open-person]", main).forEach((el) => el.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); openDrawer(+el.dataset.openPerson); }));
   $$("[data-act=connect-calendar]", main).forEach((a) => a.onclick = (e) => { e.preventDefault(); openCalendarModal(); });
   // resources
@@ -411,7 +423,7 @@ function wire(main) {
     const vals = () => ({ subject: $("[data-f=subject]", it)?.value ?? "", body: $("[data-f=body]", it)?.value ?? "" });
     const note = $("[data-f=subject]", it), count = $("[data-count]", it);
     if (note && count && it.dataset.channel === "linkedin") note.addEventListener("input", () => {
-      count.textContent = `${note.value.length} / 300`; count.classList.toggle("over", note.value.length > 300);
+      count.textContent = `${note.value.length} / ${LI_NOTE_MAX}`; count.classList.toggle("over", note.value.length > LI_NOTE_MAX);
     });
     const save = guard(async (status) => {
       await api("PATCH", `/api/drafts/${id}`, { ...vals(), status });
@@ -571,14 +583,15 @@ async function openDrawer(id) {
     </div>
     <p style="margin-top:2rem"><button class="link danger" data-act="delete">Delete person</button></p>`;
   dr.classList.add("show"); $("#drawer-scrim").classList.add("show");
-  const close = () => { dr.classList.remove("show"); $("#drawer-scrim").classList.remove("show"); state.drawerId = null; render(); };
+  const hide = () => { dr.classList.remove("show"); $("#drawer-scrim").classList.remove("show"); state.drawerId = null; };
+  const close = () => { hide(); render(); };
   $("[data-act=close]", dr).onclick = close; $("#drawer-scrim").onclick = close;
   // Link to the stage guide for whatever comes next in this person's column.
   const paintGuide = (track, stage) => {
     const g = guideFor(track, stage);
     $("[data-guide-link]", dr).innerHTML = g ? `<a href="#" data-act="guide">${icon("note")} Next: ${esc(g.title)} · open the guide ${icon("arrow")}</a>` : "";
     const a = $("[data-act=guide]", dr);
-    if (a) a.onclick = (e) => { e.preventDefault(); dr.classList.remove("show"); $("#drawer-scrim").classList.remove("show"); state.drawerId = null; openGuide(g.id); };
+    if (a) a.onclick = (e) => { e.preventDefault(); hide(); openGuide(g.id); };
   };
   paintGuide(p.track, p.stage);
   const fields = ["name", "company", "track", "stage", "next_step", "next_date", "email", "linkedin", "phone", "language", "channel"];
@@ -675,7 +688,7 @@ function openDraftModal(p, channel) {
     <div class="actions" style="margin-bottom:1rem"><button data-act="ai">Draft with Claude</button><span class="busy" data-busy style="display:none">Writing…</span></div>` : `<p class="muted small" style="margin-bottom:.8rem">The claude CLI is not on PATH, so write it by hand.</p>`}
     ${channel === "email" ? `<div class="field"><label>Subject</label><input data-f="subject"></div>` : ""}
     ${channel === "linkedin"
-      ? `<div class="li-steps"><div class="li-step"><div class="head"><span class="step">1 · Connection note</span><span class="count">under 300 characters</span></div><textarea data-f="subject" rows="3" placeholder="Why you want to connect, in two sentences."></textarea></div>
+      ? `<div class="li-steps"><div class="li-step"><div class="head"><span class="step">1 · Connection note</span><span class="count">under ${LI_NOTE_MAX} characters</span></div><textarea data-f="subject" rows="3" placeholder="Why you want to connect, in two sentences."></textarea></div>
          <div class="li-step"><div class="head"><span class="step">2 · Message after they accept</span></div><textarea data-f="body" rows="7" placeholder="The real message, with one question."></textarea></div></div>`
       : `<div class="field"><label>Message</label><textarea data-f="body" rows="9" placeholder="${channel === "whatsapp" ? "Short, like a text. One ask." : ""}"></textarea></div>`}
     <div class="actions"><span class="spacer"></span><button class="ghost" data-act="cancel">Cancel</button><button class="primary" data-act="save">Save for approval</button></div>`);
@@ -855,16 +868,16 @@ document.addEventListener("keydown", (e) => {
 
 // ----------------------------------------------------------------- boot ----
 (async function boot() {
-  try { const t = localStorage.getItem("theme"); if (t) setTheme(t); } catch {}
+  const theme = recall("theme"); if (theme) setTheme(theme);
   $("#btn-theme").onclick = toggleTheme;
   $("#btn-search").onclick = openPalette;
   $("#btn-call").onclick = () => openCallModal(state.drawerId || undefined);
   $$("#nav button").forEach((b) => b.onclick = () => show(b.dataset.screen));
   state.meta = await get("/api/meta");
   state.guides = (await get("/api/resources").catch(() => ({ guides: [] }))).guides;
-  try { state.guide = localStorage.getItem("guide") || ""; } catch {}
-  try { state.track = localStorage.getItem("track") || state.track; } catch {}
-  try { const tt = localStorage.getItem("todayTrack") || ""; state.todayTrack = state.meta.tracks.includes(tt) ? tt : ""; } catch {}
-  let screen = "today"; try { screen = localStorage.getItem("screen") || "today"; } catch {}
+  state.guide = recall("guide") || "";
+  state.track = recall("track") || state.track;
+  const tt = recall("todayTrack") || ""; state.todayTrack = state.meta.tracks.includes(tt) ? tt : "";
+  const screen = recall("screen") || "today";
   show(state.meta.is_friday ? "today" : screen);
 })();
